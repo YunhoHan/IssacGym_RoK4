@@ -39,6 +39,13 @@ from typing import Tuple, Dict
 from isaacgymenvs.utils.torch_jit_utils import to_torch, get_axis_params, torch_rand_float, normalize, quat_apply, quat_rotate_inverse
 from isaacgymenvs.tasks.base.vec_task import VecTask
 
+# === 아래 ROS 관련 import 구문 추가 ===
+import rospy
+from geometry_msgs.msg import Twist # 로봇 속도 (선속도, 각속도)
+from std_msgs.msg import Float32 # 개별 보상 값 등 단일 실수 값
+from std_msgs.msg import Float32MultiArray # 관절 위치 배열 등 다중 실수 값
+from sensor_msgs.msg import JointState # 관절 상태 (위치, 속도, 노력)
+from sensor_msgs.msg import Joy # 조이스틱 입력
 
 class RoK4Biped(VecTask):
 
@@ -104,6 +111,30 @@ class RoK4Biped(VecTask):
         for key in self.rew_scales.keys():
             self.rew_scales[key] *= self.dt
 
+        # === ROS 노드 초기화 및 퍼블리셔 생성 추가 ===
+        # 관찰할 환경 ID 설정 (0번 환경 데이터만 시각화)
+        self.observe_envs = 0
+        
+        try:
+            rospy.init_node('rok4_plot_juggler_node', anonymous=True)
+        except rospy.exceptions.ROSException:
+            print("ROS node already initialized.") # 이미 초기화된 경우 에러 방지
+
+        # 퍼블리셔 딕셔너리 생성 (보상 항목 등 동적 생성을 위해)
+        self.ros_publishers = {}
+
+        # 기본 상태 퍼블리셔 생성
+        self.ros_publishers['command'] = rospy.Publisher('/rok4/command', Twist, queue_size=10)
+        self.ros_publishers['base_velocity'] = rospy.Publisher('/rok4/base_velocity', Twist, queue_size=10)
+        self.ros_publishers['joint_states'] = rospy.Publisher('/rok4/joint_states', JointState, queue_size=10)
+        self.ros_publishers['actions'] = rospy.Publisher('/rok4/actions', JointState, queue_size=10) # 관절 액션만
+        # self.ros_publishers['clock_actions'] = rospy.Publisher('/rok4/clock_actions', Twist, queue_size=10) # 시계 액션 (Twist 재활용)
+        # self.ros_publishers['cycle_sin_cos'] = rospy.Publisher('/rok4/cycle_sin_cos', Twist, queue_size=10) # Sin/Cos (Twist 재활용)
+        self.ros_publishers['total_reward'] = rospy.Publisher('/rok4/reward/total', Float32, queue_size=10)
+
+        # 보상 항목별 퍼블리셔 동적 생성 (compute_reward 실행 후 채워짐)
+        self.reward_container = {} # 각 보상 값을 임시 저장할 딕셔너리
+
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
 
         if self.graphics_device_id != -1:
@@ -151,6 +182,7 @@ class RoK4Biped(VecTask):
             name = self.dof_names[i]
             angle = self.named_default_joint_angles[name]
             self.default_dof_pos[:, i] = angle
+
         # reward episode sums
         torch_zeros = lambda : torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
         self.episode_sums = {"lin_vel_xy": torch_zeros(), "lin_vel_z": torch_zeros(), "ang_vel_z": torch_zeros(), "ang_vel_xy": torch_zeros(),
@@ -316,13 +348,72 @@ class RoK4Biped(VecTask):
                                     self.dof_vel * self.dof_vel_scale,
                                     self.last_actions
                                     ), dim=-1)
+        
+    # === plot_juggler 함수 추가 ===
+    def plot_juggler(self):
+        # 관찰할 환경의 데이터만 추출
+        env_id = self.observe_envs
+
+        # --- 커맨드 ---
+        cmd_msg = Twist()
+        cmd_msg.linear.x = self.commands[env_id, 0].item()
+        cmd_msg.linear.y = self.commands[env_id, 1].item()
+        cmd_msg.angular.z = self.commands[env_id, 2].item()
+        if 'command' in self.ros_publishers:
+            self.ros_publishers['command'].publish(cmd_msg)
+
+        # --- 로봇 베이스 속도 ---
+        vel_msg = Twist()
+        vel_msg.linear.x = self.base_lin_vel[env_id, 0].item()
+        vel_msg.linear.y = self.base_lin_vel[env_id, 1].item()
+        vel_msg.linear.z = self.base_lin_vel[env_id, 2].item()
+        vel_msg.angular.x = self.base_ang_vel[env_id, 0].item()
+        vel_msg.angular.y = self.base_ang_vel[env_id, 1].item()
+        vel_msg.angular.z = self.base_ang_vel[env_id, 2].item()
+        if 'base_velocity' in self.ros_publishers:
+            self.ros_publishers['base_velocity'].publish(vel_msg)
+
+        # --- 관절 상태 ---
+        joint_msg = JointState()
+        joint_msg.header.stamp = rospy.Time.now()
+        joint_msg.name = self.dof_names[:self.num_actions] # 현재 num_actions (13) 사용
+        joint_msg.position = self.dof_pos[env_id, :self.num_actions].cpu().numpy()
+        joint_msg.velocity = self.dof_vel[env_id, :self.num_actions].cpu().numpy()
+        joint_msg.effort = self.torques[env_id, :self.num_actions].cpu().numpy()
+        if 'joint_states' in self.ros_publishers:
+            self.ros_publishers['joint_states'].publish(joint_msg)
+
+        # --- 액션 (관절 부분) ---
+        action_msg = JointState()
+        action_msg.header.stamp = rospy.Time.now()
+        action_msg.name = [f"action_{name}" for name in self.dof_names[:self.num_actions]]
+        action_msg.position = self.actions[env_id, :self.num_actions].cpu().numpy()
+        if 'actions' in self.ros_publishers:
+            self.ros_publishers['actions'].publish(action_msg)
+            
+        # --- 개별 보상 항목 ---
+        for reward_name, reward_value in self.reward_container.items():
+            topic_name = f'/rok4/reward/{reward_name}'
+            if topic_name not in self.ros_publishers:
+                self.ros_publishers[topic_name] = rospy.Publisher(topic_name, Float32, queue_size=10)
+            reward_msg = Float32()
+            reward_msg.data = reward_value.item() # / self.dt # 필요시 dt로 나누어 원래 스케일 확인
+            self.ros_publishers[topic_name].publish(reward_msg)
+
+        # --- 총 보상 ---
+        total_reward_msg = Float32()
+        total_reward_msg.data = self.rew_buf[env_id].item() # / self.dt
+        if 'total_reward' in self.ros_publishers:
+            self.ros_publishers['total_reward'].publish(total_reward_msg)
+    # =================================================
 
     def compute_reward(self):
         # velocity tracking reward
         lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
-        rew_lin_vel_xy = torch.exp(-lin_vel_error/0.25) * self.rew_scales["lin_vel_xy"]
-        rew_ang_vel_z = torch.exp(-ang_vel_error/0.25) * self.rew_scales["ang_vel_z"]
+
+        rew_lin_vel_xy = torch.exp(-lin_vel_error/0.1) * self.rew_scales["lin_vel_xy"]
+        rew_ang_vel_z = torch.exp(-ang_vel_error/0.1) * self.rew_scales["ang_vel_z"]
 
         # other base velocity penalties
         rew_lin_vel_z = torch.square(self.base_lin_vel[:, 2]) * self.rew_scales["lin_vel_z"]
@@ -363,6 +454,20 @@ class RoK4Biped(VecTask):
         # cosmetic penalty for hip motion
         # RoK-4의 Hip Roll 관절 인덱스인 2번과 8번으로 수정합니다.
         rew_hip = torch.sum(torch.abs(self.dof_pos[:, [2, 8]] - self.default_dof_pos[:, [2, 8]]), dim=1)* self.rew_scales["hip"]
+
+        # === 개별 보상 값 저장을 위한 코드 추가 ===
+        self.reward_container.clear()
+        reward_terms = [
+             "rew_lin_vel_xy", "rew_ang_vel_z", "rew_lin_vel_z", "rew_ang_vel_xy",
+             "rew_orient", "rew_base_height", "rew_torque", "rew_joint_acc",
+             "rew_collision", "rew_action_rate", "rew_airTime",
+             "rew_hip",
+             "rew_stumble"
+        ]
+
+        for term in reward_terms:
+             if term in locals():
+                 self.reward_container[term] = locals()[term][self.observe_envs]
 
         # total reward
         self.rew_buf = rew_lin_vel_xy + rew_ang_vel_z + rew_lin_vel_z + rew_ang_vel_xy + rew_orient + rew_base_height +\
@@ -487,6 +592,8 @@ class RoK4Biped(VecTask):
         if self.add_noise:
             self.obs_buf += (2 * torch.rand_like(self.obs_buf) - 1) * self.noise_scale_vec
 
+        self.plot_juggler()
+        
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
 

@@ -35,7 +35,7 @@ env:
 
   randomCommandVelocityRanges:
     # train
-    linear_x: [-0.3, 0.3] # min max [m/s]
+    linear_x: [-0.3, 0.7] # min max [m/s]
     linear_y: [-0.3, 0.3]   # min max [m/s]
     yaw: [-0.8, 0.8]    # min max [rad/s]
 
