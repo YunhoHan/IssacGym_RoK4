@@ -57,30 +57,55 @@ class RoK4Biped(VecTask):
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
         self.init_done = False
         
-        # normalization
-        self.lin_vel_scale = self.cfg["env"]["learn"]["linearVelocityScale"]
-        self.ang_vel_scale = self.cfg["env"]["learn"]["angularVelocityScale"]
-        self.dof_pos_scale = self.cfg["env"]["learn"]["dofPositionScale"]
-        self.dof_vel_scale = self.cfg["env"]["learn"]["dofVelocityScale"]
-        self.height_meas_scale = self.cfg["env"]["learn"]["heightMeasurementScale"]
+        self.num_legs = 2
+
+        self.C_BLACK = "\033[30m"
+        self.C_RED = "\x1b[91m"
+        self.C_GREEN = "\x1b[92m"
+        self.C_YELLOW = "\x1b[93m"
+        self.C_BLUE = "\x1b[94m"
+        self.C_MAGENTA = "\x1b[95m"
+        self.C_CYAN = "\x1b[96m"
+        self.C_RESET = "\x1b[0m"
+
+        # obs_scales normalization
+        # self.lin_vel_scale = self.cfg["env"]["learn"]["linearVelocityScale"]
+        # self.ang_vel_scale = self.cfg["env"]["learn"]["angularVelocityScale"]
+        # self.dof_pos_scale = self.cfg["env"]["learn"]["dofPositionScale"]
+        # self.dof_vel_scale = self.cfg["env"]["learn"]["dofVelocityScale"]
+        # self.height_meas_scale = self.cfg["env"]["learn"]["heightMeasurementScale"]
+        self.obs_scales = {}
+        for obs_item, value in self.cfg["env"]["learn"]["obs_scales"].items():  # rewards 섹션 순회
+            self.obs_scales[obs_item] = float(value)        
+    
+        # rew_scales normalization
+        self.rew_scales = {}
+        for rew_item, value in self.cfg["env"]["learn"]["rew_scales"].items():  # rewards 섹션 순회
+            self.rew_scales[rew_item] = float(value)
+
+        # pen_scales normalization
+        self.pen_scales = {}
+        for pen_item, value in self.cfg["env"]["learn"]["pen_scales"].items():  # rewards 섹션 순회
+            self.pen_scales[pen_item] = float(value)
+
         self.action_scale = self.cfg["env"]["control"]["actionScale"]
 
-        # reward scales
-        self.rew_scales = {}
-        self.rew_scales["termination"] = self.cfg["env"]["learn"]["terminalReward"] 
-        self.rew_scales["lin_vel_xy"] = self.cfg["env"]["learn"]["linearVelocityXYRewardScale"] 
-        self.rew_scales["lin_vel_z"] = self.cfg["env"]["learn"]["linearVelocityZRewardScale"] 
-        self.rew_scales["ang_vel_z"] = self.cfg["env"]["learn"]["angularVelocityZRewardScale"] 
-        self.rew_scales["ang_vel_xy"] = self.cfg["env"]["learn"]["angularVelocityXYRewardScale"] 
-        self.rew_scales["orient"] = self.cfg["env"]["learn"]["orientationRewardScale"] 
-        self.rew_scales["torque"] = self.cfg["env"]["learn"]["torqueRewardScale"]
-        self.rew_scales["joint_acc"] = self.cfg["env"]["learn"]["jointAccRewardScale"]
-        self.rew_scales["base_height"] = self.cfg["env"]["learn"]["baseHeightRewardScale"]
-        self.rew_scales["air_time"] = self.cfg["env"]["learn"]["feetAirTimeRewardScale"]
-        self.rew_scales["collision"] = self.cfg["env"]["learn"]["kneeCollisionRewardScale"]
-        self.rew_scales["stumble"] = self.cfg["env"]["learn"]["feetStumbleRewardScale"]
-        self.rew_scales["action_rate"] = self.cfg["env"]["learn"]["actionRateRewardScale"]
-        self.rew_scales["hip"] = self.cfg["env"]["learn"]["hipRewardScale"]
+        # # reward scales
+        # self.rew_scales = {}
+        # self.rew_scales["termination"] = self.cfg["env"]["learn"]["terminalReward"] 
+        # self.rew_scales["lin_vel_xy"] = self.cfg["env"]["learn"]["linearVelocityXYRewardScale"] 
+        # self.rew_scales["lin_vel_z"] = self.cfg["env"]["learn"]["linearVelocityZRewardScale"] 
+        # self.rew_scales["ang_vel_z"] = self.cfg["env"]["learn"]["angularVelocityZRewardScale"] 
+        # self.rew_scales["ang_vel_xy"] = self.cfg["env"]["learn"]["angularVelocityXYRewardScale"] 
+        # self.rew_scales["orient"] = self.cfg["env"]["learn"]["orientationRewardScale"] 
+        # self.rew_scales["torque"] = self.cfg["env"]["learn"]["torqueRewardScale"]
+        # self.rew_scales["joint_acc"] = self.cfg["env"]["learn"]["jointAccRewardScale"]
+        # self.rew_scales["base_height"] = self.cfg["env"]["learn"]["baseHeightRewardScale"]
+        # self.rew_scales["air_time"] = self.cfg["env"]["learn"]["feetAirTimeRewardScale"]
+        # self.rew_scales["collision"] = self.cfg["env"]["learn"]["kneeCollisionRewardScale"]
+        # self.rew_scales["stumble"] = self.cfg["env"]["learn"]["feetStumbleRewardScale"]
+        # self.rew_scales["action_rate"] = self.cfg["env"]["learn"]["actionRateRewardScale"]
+        # self.rew_scales["hip"] = self.cfg["env"]["learn"]["hipRewardScale"]
 
         #command ranges
         self.command_x_range = self.cfg["env"]["randomCommandVelocityRanges"]["linear_x"]
@@ -100,16 +125,23 @@ class RoK4Biped(VecTask):
         # other
         self.decimation = self.cfg["env"]["control"]["decimation"]
         self.dt = self.decimation * self.cfg["sim"]["dt"]
+
         self.max_episode_length_s = self.cfg["env"]["learn"]["episodeLength_s"] 
         self.max_episode_length = int(self.max_episode_length_s/ self.dt + 0.5)
+
         self.push_interval = int(self.cfg["env"]["learn"]["pushInterval_s"] / self.dt + 0.5)
         self.allow_knee_contacts = self.cfg["env"]["learn"]["allowKneeContacts"]
-        self.Kp = self.cfg["env"]["control"]["stiffness"]
-        self.Kd = self.cfg["env"]["control"]["damping"]
+
+        self.Kp = self.cfg["env"]["control"]["Kp"]
+        self.Kd = self.cfg["env"]["control"]["Kd"]
+
         self.curriculum = self.cfg["env"]["terrain"]["curriculum"]
 
-        for key in self.rew_scales.keys():
-            self.rew_scales[key] *= self.dt
+        for rew_item in self.rew_scales.keys():
+            self.rew_scales[rew_item] *= self.dt
+
+        for pen_item in self.pen_scales.keys():
+            self.pen_scales[pen_item] *= self.dt 
 
         # === ROS 노드 초기화 및 퍼블리셔 생성 추가 ===
         # 관찰할 환경 ID 설정 (0번 환경 데이터만 시각화)
@@ -136,6 +168,13 @@ class RoK4Biped(VecTask):
         self.reward_container = {} # 각 보상 값을 임시 저장할 딕셔너리
 
         super().__init__(config=self.cfg, rl_device=rl_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
+
+        self.Kp = torch.tensor(self.Kp, dtype=torch.float32, device=self.device)
+        self.Kd = torch.tensor(self.Kd, dtype=torch.float32, device=self.device)
+        print(self.C_CYAN,"Kp : ", self.Kp , self.C_RESET)
+        print(self.C_CYAN,"Kd : ", self.Kd , self.C_RESET)
+        print(self.C_CYAN,"Kp Size: ", self.Kp.size() , self.C_RESET)
+        print(self.C_CYAN,"Kd Size: ", self.Kd.size() , self.C_RESET)
 
         if self.graphics_device_id != -1:
             p = self.cfg["env"]["viewer"]["pos"]
@@ -165,7 +204,9 @@ class RoK4Biped(VecTask):
         self.extras = {}
         self.noise_scale_vec = self._get_noise_scale_vec(self.cfg)
         self.commands = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
-        self.commands_scale = torch.tensor([self.lin_vel_scale, self.lin_vel_scale, self.ang_vel_scale], device=self.device, requires_grad=False,)
+        # self.commands_scale = torch.tensor([self.lin_vel_scale, self.lin_vel_scale, self.ang_vel_scale], device=self.device, requires_grad=False,)
+        self.commands_scale = torch.tensor([self.obs_scales["linearVelocityScale"], self.obs_scales["linearVelocityScale"], self.obs_scales["angularVelocityScale"]], device=self.device, requires_grad=False,)
+
         self.gravity_vec = to_torch(get_axis_params(-1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
         self.forward_vec = to_torch([1., 0., 0.], device=self.device).repeat((self.num_envs, 1))
         self.torques = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
@@ -206,20 +247,29 @@ class RoK4Biped(VecTask):
     def _get_noise_scale_vec(self, cfg):
         # 이 벡터의 크기는 반드시 numObservations(48)와 일치해야 합니다.
         noise_vec = torch.zeros(self.cfg["env"]["numObservations"], device=self.device)
-        self.add_noise = self.cfg["env"]["learn"]["addNoise"]
-        noise_level = self.cfg["env"]["learn"]["noiseLevel"]
+        # self.add_noise = self.cfg["env"]["learn"]["addNoise"]
+        self.add_noise = self.cfg["env"]["learn"]["noise"]["addNoise"]
+        # noise_level = self.cfg["env"]["learn"]["noiseLevel"]
+        noise_level = self.cfg["env"]["learn"]["noise"]["noiseLevel"]
 
         # 슬라이스 인덱스는 compute_observations의 순서와 정확히 일치해야 합니다.
         # 0:3 -> 각속도
-        noise_vec[0:3] = self.cfg["env"]["learn"]["angularVelocityNoise"] * noise_level * self.ang_vel_scale
+        # noise_vec[0:3] = self.cfg["env"]["learn"]["angularVelocityNoise"] * noise_level * self.ang_vel_scale
+        # noise_vec[0:3] = self.cfg["env"]["learn"]["angularVelocityNoise"] * noise_level * self.obs_scales["angularVelocityScale"]
+        noise_vec[0:3] = self.cfg["env"]["learn"]["noise"]["angularVelocityNoise"] * noise_level * self.obs_scales["angularVelocityScale"]
         # 3:6 -> 중력 벡터
-        noise_vec[3:6] = self.cfg["env"]["learn"]["gravityNoise"] * noise_level
+        # noise_vec[3:6] = self.cfg["env"]["learn"]["gravityNoise"] * noise_level
+        noise_vec[3:6] = self.cfg["env"]["learn"]["noise"]["gravityNoise"] * noise_level
         # 6:9 -> 커맨드 (노이즈 없음)
         noise_vec[6:9] = 0.
         # 9:22 -> 관절 각도 (13개)
-        noise_vec[9:22] = self.cfg["env"]["learn"]["dofPositionNoise"] * noise_level * self.dof_pos_scale
+        # noise_vec[9:22] = self.cfg["env"]["learn"]["dofPositionNoise"] * noise_level * self.dof_pos_scale
+        # noise_vec[9:22] = self.cfg["env"]["learn"]["dofPositionNoise"] * noise_level * self.obs_scales["dofPositionScale"]
+        noise_vec[9:22] = self.cfg["env"]["learn"]["noise"]["dofPositionNoise"] * noise_level * self.obs_scales["dofPositionScale"]
         # 22:35 -> 관절 속도 (13개)
-        noise_vec[22:35] = self.cfg["env"]["learn"]["dofVelocityNoise"] * noise_level * self.dof_vel_scale
+        # noise_vec[22:35] = self.cfg["env"]["learn"]["dofVelocityNoise"] * noise_level * self.dof_vel_scale
+        # noise_vec[22:35] = self.cfg["env"]["learn"]["dofVelocityNoise"] * noise_level * self.obs_scales["dofVelocityScale"]
+        noise_vec[22:35] = self.cfg["env"]["learn"]["noise"]["dofVelocityNoise"] * noise_level * self.obs_scales["dofVelocityScale"]
         # 35:48 -> 이전 행동 (13개, 노이즈 없음)
         noise_vec[35:48] = 0.
         
@@ -341,11 +391,11 @@ class RoK4Biped(VecTask):
 
     def compute_observations(self):
         # 총 차원: 3(각속도) + 3(중력) + 3(커맨드) + 13(관절각도) + 13(관절속도) + 13(이전행동) = 48
-        self.obs_buf = torch.cat((  self.base_ang_vel  * self.ang_vel_scale,
+        self.obs_buf = torch.cat((  self.base_ang_vel  * self.obs_scales["angularVelocityScale"],
                                     self.projected_gravity,
                                     self.commands[:, :3], # 우선 3개의 커맨드만 사용
-                                    self.dof_pos * self.dof_pos_scale,
-                                    self.dof_vel * self.dof_vel_scale,
+                                    self.dof_pos * self.obs_scales["dofPositionScale"],
+                                    self.dof_vel * self.obs_scales["dofVelocityScale"],
                                     self.last_actions
                                     ), dim=-1)
         
@@ -412,57 +462,71 @@ class RoK4Biped(VecTask):
         lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
 
-        rew_lin_vel_xy = torch.exp(-lin_vel_error/0.1) * self.rew_scales["lin_vel_xy"]
-        rew_ang_vel_z = torch.exp(-ang_vel_error/0.1) * self.rew_scales["ang_vel_z"]
+        # rew_lin_vel_xy = torch.exp(-lin_vel_error/0.1) * self.rew_scales["lin_vel_xy"]
+        rew_lin_vel_xy = torch.exp(-lin_vel_error/0.1) * self.rew_scales["linearVelocityXYRewardScale"] #
+        # rew_ang_vel_z = torch.exp(-ang_vel_error/0.1) * self.rew_scales["ang_vel_z"]
+        rew_ang_vel_z = torch.exp(-ang_vel_error/0.1) * self.rew_scales["angularVelocityZRewardScale"] #
 
         # other base velocity penalties
-        rew_lin_vel_z = torch.square(self.base_lin_vel[:, 2]) * self.rew_scales["lin_vel_z"]
-        rew_ang_vel_xy = torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1) * self.rew_scales["ang_vel_xy"]
+        # rew_lin_vel_z = torch.square(self.base_lin_vel[:, 2]) * self.rew_scales["lin_vel_z"]
+        rew_lin_vel_z = torch.square(self.base_lin_vel[:, 2]) * self.pen_scales["linearVelocityZRewardScale"] #
+        # rew_ang_vel_xy = torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1) * self.rew_scales["ang_vel_xy"]
+        rew_ang_vel_xy = torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1) * self.pen_scales["angularVelocityXYRewardScale"] #
 
         # orientation penalty
-        rew_orient = torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1) * self.rew_scales["orient"]
+        # rew_orient = torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1) * self.rew_scales["orient"]
+        rew_orient = torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1) * self.pen_scales["orientationRewardScale"] #
 
         # base height penalty
-        rew_base_height = torch.square(self.root_states[:, 2] - 0.52) * self.rew_scales["base_height"] # TODO add target base height to cfg
+        # rew_base_height = torch.square(self.root_states[:, 2] - 0.52) * self.rew_scales["base_height"] # TODO add target base height to cfg
+        rew_base_height = torch.square(self.root_states[:, 2] - self.cfg["env"]["baseInitState"]["pos"][2]) * self.pen_scales["baseHeightRewardScale"] # # TODO target base height cfg로 이동
 
         # torque penalty
-        rew_torque = torch.sum(torch.square(self.torques), dim=1) * self.rew_scales["torque"]
+        # rew_torque = torch.sum(torch.square(self.torques), dim=1) * self.rew_scales["torque"]
+        rew_torque = torch.sum(torch.square(self.torques), dim=1) * self.pen_scales["torqueRewardScale"] #
 
         # joint acc penalty
-        rew_joint_acc = torch.sum(torch.square(self.last_dof_vel - self.dof_vel), dim=1) * self.rew_scales["joint_acc"]
+        # rew_joint_acc = torch.sum(torch.square(self.last_dof_vel - self.dof_vel), dim=1) * self.rew_scales["joint_acc"]
+        rew_joint_acc = torch.sum(torch.square(self.last_dof_vel - self.dof_vel), dim=1) * self.pen_scales["jointAccRewardScale"] #
 
         # collision penalty
         knee_contact = torch.norm(self.contact_forces[:, self.knee_indices, :], dim=2) > 1.
-        rew_collision = torch.sum(knee_contact, dim=1) * self.rew_scales["collision"] # sum vs any ?
+        # rew_collision = torch.sum(knee_contact, dim=1) * self.rew_scales["collision"] # sum vs any ?
+        rew_collision = torch.sum(knee_contact, dim=1) * self.pen_scales["kneeCollisionRewardScale"] #
 
         # stumbling penalty
         stumble = (torch.norm(self.contact_forces[:, self.feet_indices, :2], dim=2) > 5.) * (torch.abs(self.contact_forces[:, self.feet_indices, 2]) < 1.)
-        rew_stumble = torch.sum(stumble, dim=1) * self.rew_scales["stumble"]
+        # rew_stumble = torch.sum(stumble, dim=1) * self.rew_scales["stumble"]
+        rew_stumble = torch.sum(stumble, dim=1) * self.pen_scales["feetStumbleRewardScale"] #
 
         # action rate penalty
-        rew_action_rate = torch.sum(torch.square(self.last_actions - self.actions), dim=1) * self.rew_scales["action_rate"]
+        # rew_action_rate = torch.sum(torch.square(self.last_actions - self.actions), dim=1) * self.rew_scales["action_rate"]
+        rew_action_rate = torch.sum(torch.square(self.last_actions - self.actions), dim=1) * self.pen_scales["actionRateRewardScale"] #
 
         # air time reward
         # contact = torch.norm(contact_forces[:, feet_indices, :], dim=2) > 1.
         contact = self.contact_forces[:, self.feet_indices, 2] > 1.
         first_contact = (self.feet_air_time > 0.) * contact
         self.feet_air_time += self.dt
-        rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) * self.rew_scales["air_time"] # reward only on first contact with the ground
-        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1 #no reward for zero command
+        # rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) * self.rew_scales["air_time"] # reward only on first contact with the ground
+        # rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1 #no reward for zero command
+        # self.feet_air_time *= ~contact
+        rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) * self.rew_scales["feetAirTimeRewardScale"] #
+        rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1
         self.feet_air_time *= ~contact
 
         # cosmetic penalty for hip motion
-        # RoK-4의 Hip Roll 관절 인덱스인 2번과 8번으로 수정합니다.
-        rew_hip = torch.sum(torch.abs(self.dof_pos[:, [2, 8]] - self.default_dof_pos[:, [2, 8]]), dim=1)* self.rew_scales["hip"]
-
+        # RoK-4의 Hip Roll 관절 인덱스인 1번과 7번으로 수정합니다.
+        # rew_hip = torch.sum(torch.abs(self.dof_pos[:, [1, 7]] - self.default_dof_pos[:, [1, 7]]), dim=1)* self.rew_scales["hip"]
+        rew_hip = torch.sum(torch.abs(self.dof_pos[:, [1, 7]] - self.default_dof_pos[:, [1, 7]]), dim=1)* self.pen_scales["hipRewardScale"] #
+   
         # === 개별 보상 값 저장을 위한 코드 추가 ===
         self.reward_container.clear()
         reward_terms = [
              "rew_lin_vel_xy", "rew_ang_vel_z", "rew_lin_vel_z", "rew_ang_vel_xy",
              "rew_orient", "rew_base_height", "rew_torque", "rew_joint_acc",
              "rew_collision", "rew_action_rate", "rew_airTime",
-             "rew_hip",
-             "rew_stumble"
+             "rew_hip", "rew_stumble"
         ]
 
         for term in reward_terms:
@@ -475,7 +539,8 @@ class RoK4Biped(VecTask):
         self.rew_buf = torch.clip(self.rew_buf, min=0., max=None)
 
         # add termination reward
-        self.rew_buf += self.rew_scales["termination"] * self.reset_buf * ~self.timeout_buf
+        # self.rew_buf += self.rew_scales["termination"] * self.reset_buf * ~self.timeout_buf
+        self.rew_buf += self.rew_scales["terminalReward"] * self.reset_buf * ~self.timeout_buf #
 
         # log episode reward sums
         self.episode_sums["lin_vel_xy"] += rew_lin_vel_xy

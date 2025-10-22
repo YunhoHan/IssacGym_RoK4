@@ -41,8 +41,36 @@ env:
 
   control:
     # PD Drive parameters:
-    stiffness: 80.0  # [N*m/rad]
-    damping: 2.0     # [N*m*s/rad]
+    # stiffness: 80.0  # [N*m/rad]
+    # damping: 2.0     # [N*m*s/rad]
+    
+    # PD Drive parameters:
+    # RMD_x12_150_kt 2.5
+    # RMD_x8_90_kt 3.0
+    # Kp: [600.0, 600.0, 600.0, 600.0, 600.0, 600.0,        # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+    #      600.0, 600.0, 600.0, 600.0, 600.0, 600.0,        # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+    #      480.0]                                           # 허리 (WST)  [cur/rad]
+
+    # Kd: [6.0, 6.0, 6.0, 6.0, 6.0, 6.0,                    # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+    #      6.0, 6.0, 6.0, 6.0, 6.0, 6.0,                    # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+    #      4.8]                                             # 허리 (WST)    [cur*s/rad]
+
+    # Kp: [1500.0, 1500.0, 1500.0, 1500.0, 1800.0, 1800.0,  # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+    #      1500.0, 1500.0, 1500.0, 1500.0, 1800.0, 1800.0,  # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+    #      1200.0]                                          # 허리 (WST)  [N*m/rad]
+
+    # Kd: [15.0, 15.0, 15.0, 15.0, 15.0, 18.0,              # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+    #      15.0, 15.0, 15.0, 15.0, 15.0, 18.0,              # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+    #      12.0]                                            # 허리 (WST)    [N*m*s/rad]
+    
+    Kp: [150.0, 150.0, 300.0, 300.0, 180.0, 180.0,    # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+         150.0, 150.0, 300.0, 300.0, 180.0, 180.0,    # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+         120.0]                                       # 허리 (WST)  [N*m/rad]
+
+    Kd: [1.5, 1.5, 3.0, 3.0, 1.8, 1.8,                # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+         1.5, 1.5, 3.0, 3.0, 1.8, 1.8,                # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+         1.2]                                         # 허리 (WST)    [N*m*s/rad]
+
     # action scale: target angle = actionScale * action + defaultAngle
     actionScale: 0.5
     # decimation: Number of control action updates @ sim DT per policy DT
@@ -79,39 +107,45 @@ env:
 
   learn:
     allowKneeContacts: true
-    # rewards
-    terminalReward: 0.0
-    linearVelocityXYRewardScale: 1.0
-    linearVelocityZRewardScale: -4.0
-    angularVelocityXYRewardScale: -0.05
-    angularVelocityZRewardScale: 0.5
-    orientationRewardScale: -0. #-1.
-    torqueRewardScale: -0.00002 # -0.000025
-    jointAccRewardScale: -0.0005 # -0.0025
-    baseHeightRewardScale: -0.0 #5
-    feetAirTimeRewardScale:  1.0
-    kneeCollisionRewardScale: -0.25 
-    feetStumbleRewardScale: -0. #-2.0
-    actionRateRewardScale: -0.01
-    # cosmetics
-    hipRewardScale: -0. #25
+    # 
+    rew_scales:
+      terminalReward: 0.0
+      linearVelocityXYRewardScale: 1.0
+      angularVelocityZRewardScale: 0.5
+      feetAirTimeRewardScale:  1.0
 
-    # normalization
-    linearVelocityScale: 2.0
-    angularVelocityScale: 0.25
-    dofPositionScale: 1.0
-    dofVelocityScale: 0.05
-    heightMeasurementScale: 5.0
+    pen_scales:
+      linearVelocityZRewardScale: -4.0
+      angularVelocityXYRewardScale: -0.05
+      orientationRewardScale: -0. #-1.
+      torqueRewardScale: -0.00002 # -0.000025
+      jointAccRewardScale: -0.0005 # -0.0025
+      baseHeightRewardScale: -0.0 #5
+
+      kneeCollisionRewardScale: -0.25 
+      feetStumbleRewardScale: -0. #-2.0
+      actionRateRewardScale: -0.01
+      # cosmetics
+      hipRewardScale: -0. #25
+
+    # observation normalization scales
+    obs_scales:
+      linearVelocityScale: 2.0
+      angularVelocityScale: 0.25
+      dofPositionScale: 1.0
+      dofVelocityScale: 0.05
+      heightMeasurementScale: 5.0
 
     # noise 
-    addNoise: true
-    noiseLevel: 1.0 # scales other values
-    dofPositionNoise: 0.01
-    dofVelocityNoise: 1.5
-    linearVelocityNoise: 0.1
-    angularVelocityNoise: 0.2
-    gravityNoise: 0.05
-    heightMeasurementNoise: 0.06
+    noise:
+      addNoise: true
+      noiseLevel: 1.0 # scales other values
+      dofPositionNoise: 0.01
+      dofVelocityNoise: 1.5
+      linearVelocityNoise: 0.1
+      angularVelocityNoise: 0.2
+      gravityNoise: 0.05
+      heightMeasurementNoise: 0.06
 
     #randomization
     randomizeFriction: true
