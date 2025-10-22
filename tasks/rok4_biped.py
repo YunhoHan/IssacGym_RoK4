@@ -51,14 +51,6 @@ class RoK4Biped(VecTask):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
 
-        self.cfg = cfg
-        self.height_samples = None
-        self.custom_origins = False
-        self.debug_viz = self.cfg["env"]["enableDebugVis"]
-        self.init_done = False
-        
-        self.num_legs = 2
-
         self.C_BLACK = "\033[30m"
         self.C_RED = "\x1b[91m"
         self.C_GREEN = "\x1b[92m"
@@ -68,12 +60,20 @@ class RoK4Biped(VecTask):
         self.C_CYAN = "\x1b[96m"
         self.C_RESET = "\x1b[0m"
 
+        self.cfg = cfg
+        self.height_samples = None
+        self.custom_origins = False
+        self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        self.init_done = False
+        
+        self.num_legs = 2
+
+        self.min_swing_time = 0.35
+        self.cycle_time = 0.8
+
+        self.num_joint_actions = self.cfg["env"]["numJointActions"]
+
         # obs_scales normalization
-        # self.lin_vel_scale = self.cfg["env"]["learn"]["linearVelocityScale"]
-        # self.ang_vel_scale = self.cfg["env"]["learn"]["angularVelocityScale"]
-        # self.dof_pos_scale = self.cfg["env"]["learn"]["dofPositionScale"]
-        # self.dof_vel_scale = self.cfg["env"]["learn"]["dofVelocityScale"]
-        # self.height_meas_scale = self.cfg["env"]["learn"]["heightMeasurementScale"]
         self.obs_scales = {}
         for obs_item, value in self.cfg["env"]["learn"]["obs_scales"].items():  # rewards 섹션 순회
             self.obs_scales[obs_item] = float(value)        
@@ -89,23 +89,6 @@ class RoK4Biped(VecTask):
             self.pen_scales[pen_item] = float(value)
 
         self.action_scale = self.cfg["env"]["control"]["actionScale"]
-
-        # # reward scales
-        # self.rew_scales = {}
-        # self.rew_scales["termination"] = self.cfg["env"]["learn"]["terminalReward"] 
-        # self.rew_scales["lin_vel_xy"] = self.cfg["env"]["learn"]["linearVelocityXYRewardScale"] 
-        # self.rew_scales["lin_vel_z"] = self.cfg["env"]["learn"]["linearVelocityZRewardScale"] 
-        # self.rew_scales["ang_vel_z"] = self.cfg["env"]["learn"]["angularVelocityZRewardScale"] 
-        # self.rew_scales["ang_vel_xy"] = self.cfg["env"]["learn"]["angularVelocityXYRewardScale"] 
-        # self.rew_scales["orient"] = self.cfg["env"]["learn"]["orientationRewardScale"] 
-        # self.rew_scales["torque"] = self.cfg["env"]["learn"]["torqueRewardScale"]
-        # self.rew_scales["joint_acc"] = self.cfg["env"]["learn"]["jointAccRewardScale"]
-        # self.rew_scales["base_height"] = self.cfg["env"]["learn"]["baseHeightRewardScale"]
-        # self.rew_scales["air_time"] = self.cfg["env"]["learn"]["feetAirTimeRewardScale"]
-        # self.rew_scales["collision"] = self.cfg["env"]["learn"]["kneeCollisionRewardScale"]
-        # self.rew_scales["stumble"] = self.cfg["env"]["learn"]["feetStumbleRewardScale"]
-        # self.rew_scales["action_rate"] = self.cfg["env"]["learn"]["actionRateRewardScale"]
-        # self.rew_scales["hip"] = self.cfg["env"]["learn"]["hipRewardScale"]
 
         #command ranges
         self.command_x_range = self.cfg["env"]["randomCommandVelocityRanges"]["linear_x"]
@@ -203,23 +186,62 @@ class RoK4Biped(VecTask):
         self.common_step_counter = 0
         self.extras = {}
         self.noise_scale_vec = self._get_noise_scale_vec(self.cfg)
-        self.commands = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
+        # self.commands = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
+        self.commands = torch.zeros(self.num_envs, 3, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel
         # self.commands_scale = torch.tensor([self.lin_vel_scale, self.lin_vel_scale, self.ang_vel_scale], device=self.device, requires_grad=False,)
         self.commands_scale = torch.tensor([self.obs_scales["linearVelocityScale"], self.obs_scales["linearVelocityScale"], self.obs_scales["angularVelocityScale"]], device=self.device, requires_grad=False,)
 
         self.gravity_vec = to_torch(get_axis_params(-1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
         self.forward_vec = to_torch([1., 0., 0.], device=self.device).repeat((self.num_envs, 1))
-        self.torques = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
-        self.actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
-        self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
-        self.feet_air_time = torch.zeros(self.num_envs, 2, dtype=torch.float, device=self.device, requires_grad=False)
-        self.last_dof_vel = torch.zeros_like(self.dof_vel)
+
+        # === 👇 게이트 클럭 관련 변수 추가 (rok3.py 참조) ===
+        # Dof factors - Actions History & Clock
+        # 액션 공간은 13개 관절 + 4개 클럭 = 17개. YAML 파일 수정 필요!
+        # self.torques 텐서 크기 수정 (13개 관절 토크만 저장)
+
+        # self.torques = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        self.torques = torch.zeros(self.num_envs, self.num_joint_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        self.joint_actions = torch.zeros(self.num_envs, self.num_joint_actions, dtype=torch.float, device=self.device, requires_grad=False)
+
+        # 액션 이력 (Smoothness 보상용) - 관절 액션(13개)만 저장
+        self.last_joint_actions = torch.zeros(self.num_envs, self.num_joint_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        self.last_joint_actions2 = torch.zeros(self.num_envs, self.num_joint_actions, dtype=torch.float, device=self.device, requires_grad=False)
+
+        # 클럭 액션 (정책 출력 중 4개) - YAML의 numActions(17) 중 나머지 4개
+        self.clock_actions = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False) #
+        self.last_clock_actions = torch.zeros(self.num_envs, 4, dtype=torch.float, device=self.device, requires_grad=False) #
+
+        # Dof factors - Dof History (Smoothness 보상용)
+        self.last_dof_vel = torch.zeros_like(self.dof_vel) # 기존 라인 확인
+        self.last_dof_vel2 = torch.zeros_like(self.dof_vel) #
+        self.dof_acc = torch.zeros_like(self.dof_vel) #
+        self.last_dof_acc = torch.zeros_like(self.dof_vel) #
+
+        # Foot factors - Cycle (게이트 클럭 위상)
+        self.sin_cycle = torch.zeros(self.num_envs, self.num_legs, dtype=torch.float, device=self.device, requires_grad=False) #
+        self.cos_cycle = torch.zeros(self.num_envs, self.num_legs, dtype=torch.float, device=self.device, requires_grad=False) #
+        self.cycle_t = torch.zeros(self.num_envs, self.num_legs, device=self.device, dtype=torch.float) # # L/R 시간
+        self.cycle_L_x = torch.zeros(self.num_envs, device=self.device, dtype=torch.float) # # 로깅/보상용
+        self.cycle_R_x = torch.zeros(self.num_envs, device=self.device, dtype=torch.float) # # 로깅/보상용
+
+        self.phi = torch.zeros(self.num_envs, self.num_legs, dtype=torch.float, device=self.device) # # 위상 오프셋
+
+        # Foot factors - State (보상 함수용)
+        self.last_foot_contacts = torch.zeros(self.num_envs, self.num_legs, device=self.device, dtype=torch.bool) #
+        self.foot_pos = torch.zeros(self.num_envs, self.num_legs, 3, device=self.device, dtype=torch.float) # # 발 위치 저장용
+        # self.feet_air_time -> self.foot_air_time 으로 이름 변경 및 크기 조정
+        # self.feet_air_time = torch.zeros(self.num_envs, 2, dtype=torch.float, device=self.device, requires_grad=False)
+        self.foot_air_time = torch.zeros(self.num_envs, self.num_legs, device=self.device, dtype=torch.float) #->
+        self.foot_swing_start_time = torch.zeros(self.num_envs, self.num_legs, dtype=torch.float, device=self.device) #
+        self.foot_swing_state = torch.zeros(self.num_envs, self.num_legs, dtype=torch.bool, device=self.device) #
+
+        # === 👆 게이트 클럭 관련 변수 추가 완료 ===
 
         self.height_points = self.init_height_points()
         self.measured_heights = None
         # joint positions offsets
         self.default_dof_pos = torch.zeros_like(self.dof_pos, dtype=torch.float, device=self.device, requires_grad=False)
-        for i in range(self.num_actions):
+        for i in range(self.num_joint_actions):
             name = self.dof_names[i]
             angle = self.named_default_joint_angles[name]
             self.default_dof_pos[:, i] = angle
@@ -254,25 +276,27 @@ class RoK4Biped(VecTask):
 
         # 슬라이스 인덱스는 compute_observations의 순서와 정확히 일치해야 합니다.
         # 0:3 -> 각속도
-        # noise_vec[0:3] = self.cfg["env"]["learn"]["angularVelocityNoise"] * noise_level * self.ang_vel_scale
-        # noise_vec[0:3] = self.cfg["env"]["learn"]["angularVelocityNoise"] * noise_level * self.obs_scales["angularVelocityScale"]
         noise_vec[0:3] = self.cfg["env"]["learn"]["noise"]["angularVelocityNoise"] * noise_level * self.obs_scales["angularVelocityScale"]
         # 3:6 -> 중력 벡터
-        # noise_vec[3:6] = self.cfg["env"]["learn"]["gravityNoise"] * noise_level
         noise_vec[3:6] = self.cfg["env"]["learn"]["noise"]["gravityNoise"] * noise_level
         # 6:9 -> 커맨드 (노이즈 없음)
         noise_vec[6:9] = 0.
         # 9:22 -> 관절 각도 (13개)
-        # noise_vec[9:22] = self.cfg["env"]["learn"]["dofPositionNoise"] * noise_level * self.dof_pos_scale
-        # noise_vec[9:22] = self.cfg["env"]["learn"]["dofPositionNoise"] * noise_level * self.obs_scales["dofPositionScale"]
         noise_vec[9:22] = self.cfg["env"]["learn"]["noise"]["dofPositionNoise"] * noise_level * self.obs_scales["dofPositionScale"]
         # 22:35 -> 관절 속도 (13개)
-        # noise_vec[22:35] = self.cfg["env"]["learn"]["dofVelocityNoise"] * noise_level * self.dof_vel_scale
-        # noise_vec[22:35] = self.cfg["env"]["learn"]["dofVelocityNoise"] * noise_level * self.obs_scales["dofVelocityScale"]
         noise_vec[22:35] = self.cfg["env"]["learn"]["noise"]["dofVelocityNoise"] * noise_level * self.obs_scales["dofVelocityScale"]
         # 35:48 -> 이전 행동 (13개, 노이즈 없음)
         noise_vec[35:48] = 0.
         
+        # --- 추가된 관측값에 대한 노이즈 설정 (rok3.py 참조) ---
+        # 48:50 -> sin_cycle (2개, 노이즈 없음)
+        noise_vec[48:50] = 0.
+        # 50:52 -> cos_cycle (2개, 노이즈 없음)
+        noise_vec[50:52] = 0.
+        # 52:56 -> clock_actions (4개, 노이즈 없음)
+        noise_vec[52:56] = 0.
+        # --- 👆 추가 완료 ---
+
         return noise_vec
 
     def _create_ground_plane(self):
@@ -390,14 +414,55 @@ class RoK4Biped(VecTask):
         self.reset_buf = torch.where(self.progress_buf >= self.max_episode_length - 1, torch.ones_like(self.reset_buf), self.reset_buf)
 
     def compute_observations(self):
-        # 총 차원: 3(각속도) + 3(중력) + 3(커맨드) + 13(관절각도) + 13(관절속도) + 13(이전행동) = 48
-        self.obs_buf = torch.cat((  self.base_ang_vel  * self.obs_scales["angularVelocityScale"],
-                                    self.projected_gravity,
-                                    self.commands[:, :3], # 우선 3개의 커맨드만 사용
-                                    self.dof_pos * self.obs_scales["dofPositionScale"],
-                                    self.dof_vel * self.obs_scales["dofVelocityScale"],
-                                    self.last_actions
+        # === 👇 함수 전체 (56개 관측값 생성) ===
+
+        # --- 게이트 클럭 위상 계산 (post_physics_step에서 cycle_t 업데이트 후 실행됨) ---
+        # TODO: post_physics_step에서 self.cycle_t 업데이트 로직 추가 필요
+        # TODO: pre_physics_step에서 처리된 self.clock_actions[:, :2]가 self.phi 값으로 사용될 수 있음
+
+        # 가정: self.cycle_t 는 (num_envs, 2) 크기, 0~1 사이 값
+        # 가정: self.clock_actions[:, :2] 는 각 다리의 위상 오프셋 phi 값 (스무딩 후) L/R 다리 위상을 pi 만큼 차이 나게 계산
+
+        phi_offsets = self.clock_actions[:, :2] * ~self.no_commands.unsqueeze(1) #
+
+        # 각 다리의 위상 계산 (rok3.py 방식 참고)
+        # cycle_t는 L/R 다리 각각의 시간 진행률 (0~1)
+        cycle_rad_L = 2. * torch.pi * (self.cycle_t[:, 0] / self.cycle_time) + phi_offsets[:, 0]
+        cycle_rad_R = 2. * torch.pi * (self.cycle_t[:, 1] / self.cycle_time) + phi_offsets[:, 1] + torch.pi # rok3 방식은 R에 pi 추가
+
+        self.sin_cycle[:, 0] = torch.sin(cycle_rad_L)
+        self.cos_cycle[:, 0] = torch.cos(cycle_rad_L)
+        
+        self.sin_cycle[:, 1] = torch.sin(cycle_rad_R)
+        self.cos_cycle[:, 1] = torch.cos(cycle_rad_R)
+        # --- 게이트 위상 계산 완료 ---
+
+        # 스케일링된 관측값 준비
+        base_ang_vel_scaled = self.base_ang_vel * self.obs_scales["angularVelocityScale"]
+        dof_pos_scaled = self.dof_pos * self.obs_scales["dofPositionScale"]
+        dof_vel_scaled = self.dof_vel * self.obs_scales["dofVelocityScale"]
+
+        # 56개 관측값 합치기 (rok3.py 순서 참조)
+        self.obs_buf = torch.cat((  base_ang_vel_scaled,         # 3   [0:3]
+                                    self.projected_gravity,      # 3   [3:6]
+                                    self.commands[:, :3],        # 3   [6:9]
+                                    dof_pos_scaled,              # 13  [9:22]
+                                    dof_vel_scaled,              # 13  [22:35]
+                                    self.joint_actions,          # 13  [35:48] # 앞선 pre에서 계산된 actions 사용
+                                    self.sin_cycle,              # 2   [48:50] <-- 추가
+                                    self.cos_cycle,              # 2   [50:52] <-- 추가
+                                    self.clock_actions           # 4   [52:56] <-- 추가
                                     ), dim=-1)
+        # === 👆 함수 전체 수정 완료 ===
+        
+        # # 총 차원: 3(각속도) + 3(중력) + 3(커맨드) + 13(관절각도) + 13(관절속도) + 13(이전행동) = 48
+        # self.obs_buf = torch.cat((  self.base_ang_vel  * self.obs_scales["angularVelocityScale"],
+        #                             self.projected_gravity,
+        #                             self.commands[:, :3], # 우선 3개의 커맨드만 사용
+        #                             self.dof_pos * self.obs_scales["dofPositionScale"],
+        #                             self.dof_vel * self.obs_scales["dofVelocityScale"],
+        #                             self.joint_actions
+        #                             ), dim=-1)
         
     # === plot_juggler 함수 추가 ===
     def plot_juggler(self):
@@ -437,7 +502,7 @@ class RoK4Biped(VecTask):
         action_msg = JointState()
         action_msg.header.stamp = rospy.Time.now()
         action_msg.name = [f"action_{name}" for name in self.dof_names[:self.num_actions]]
-        action_msg.position = self.actions[env_id, :self.num_actions].cpu().numpy()
+        action_msg.position = self.joint_actions[env_id, :self.num_actions].cpu().numpy()
         if 'actions' in self.ros_publishers:
             self.ros_publishers['actions'].publish(action_msg)
             
@@ -462,62 +527,47 @@ class RoK4Biped(VecTask):
         lin_vel_error = torch.sum(torch.square(self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
         ang_vel_error = torch.square(self.commands[:, 2] - self.base_ang_vel[:, 2])
 
-        # rew_lin_vel_xy = torch.exp(-lin_vel_error/0.1) * self.rew_scales["lin_vel_xy"]
         rew_lin_vel_xy = torch.exp(-lin_vel_error/0.1) * self.rew_scales["linearVelocityXYRewardScale"] #
-        # rew_ang_vel_z = torch.exp(-ang_vel_error/0.1) * self.rew_scales["ang_vel_z"]
         rew_ang_vel_z = torch.exp(-ang_vel_error/0.1) * self.rew_scales["angularVelocityZRewardScale"] #
 
         # other base velocity penalties
-        # rew_lin_vel_z = torch.square(self.base_lin_vel[:, 2]) * self.rew_scales["lin_vel_z"]
         rew_lin_vel_z = torch.square(self.base_lin_vel[:, 2]) * self.pen_scales["linearVelocityZRewardScale"] #
-        # rew_ang_vel_xy = torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1) * self.rew_scales["ang_vel_xy"]
         rew_ang_vel_xy = torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1) * self.pen_scales["angularVelocityXYRewardScale"] #
 
         # orientation penalty
-        # rew_orient = torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1) * self.rew_scales["orient"]
         rew_orient = torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1) * self.pen_scales["orientationRewardScale"] #
 
         # base height penalty
-        # rew_base_height = torch.square(self.root_states[:, 2] - 0.52) * self.rew_scales["base_height"] # TODO add target base height to cfg
         rew_base_height = torch.square(self.root_states[:, 2] - self.cfg["env"]["baseInitState"]["pos"][2]) * self.pen_scales["baseHeightRewardScale"] # # TODO target base height cfg로 이동
 
         # torque penalty
-        # rew_torque = torch.sum(torch.square(self.torques), dim=1) * self.rew_scales["torque"]
         rew_torque = torch.sum(torch.square(self.torques), dim=1) * self.pen_scales["torqueRewardScale"] #
 
         # joint acc penalty
-        # rew_joint_acc = torch.sum(torch.square(self.last_dof_vel - self.dof_vel), dim=1) * self.rew_scales["joint_acc"]
         rew_joint_acc = torch.sum(torch.square(self.last_dof_vel - self.dof_vel), dim=1) * self.pen_scales["jointAccRewardScale"] #
 
         # collision penalty
         knee_contact = torch.norm(self.contact_forces[:, self.knee_indices, :], dim=2) > 1.
-        # rew_collision = torch.sum(knee_contact, dim=1) * self.rew_scales["collision"] # sum vs any ?
         rew_collision = torch.sum(knee_contact, dim=1) * self.pen_scales["kneeCollisionRewardScale"] #
 
         # stumbling penalty
         stumble = (torch.norm(self.contact_forces[:, self.feet_indices, :2], dim=2) > 5.) * (torch.abs(self.contact_forces[:, self.feet_indices, 2]) < 1.)
-        # rew_stumble = torch.sum(stumble, dim=1) * self.rew_scales["stumble"]
         rew_stumble = torch.sum(stumble, dim=1) * self.pen_scales["feetStumbleRewardScale"] #
 
         # action rate penalty
-        # rew_action_rate = torch.sum(torch.square(self.last_actions - self.actions), dim=1) * self.rew_scales["action_rate"]
-        rew_action_rate = torch.sum(torch.square(self.last_actions - self.actions), dim=1) * self.pen_scales["actionRateRewardScale"] #
+        rew_action_rate = torch.sum(torch.square(self.last_joint_actions - self.joint_actions), dim=1) * self.pen_scales["actionRateRewardScale"] #
 
         # air time reward
         # contact = torch.norm(contact_forces[:, feet_indices, :], dim=2) > 1.
         contact = self.contact_forces[:, self.feet_indices, 2] > 1.
-        first_contact = (self.feet_air_time > 0.) * contact
-        self.feet_air_time += self.dt
-        # rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) * self.rew_scales["air_time"] # reward only on first contact with the ground
-        # rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1 #no reward for zero command
-        # self.feet_air_time *= ~contact
-        rew_airTime = torch.sum((self.feet_air_time - 0.5) * first_contact, dim=1) * self.rew_scales["feetAirTimeRewardScale"] #
+        first_contact = (self.foot_air_time > 0.) * contact
+        self.foot_air_time += self.dt
+        rew_airTime = torch.sum((self.foot_air_time - 0.5) * first_contact, dim=1) * self.rew_scales["feetAirTimeRewardScale"] #
         rew_airTime *= torch.norm(self.commands[:, :2], dim=1) > 0.1
-        self.feet_air_time *= ~contact
+        self.foot_air_time *= ~contact
 
         # cosmetic penalty for hip motion
         # RoK-4의 Hip Roll 관절 인덱스인 1번과 7번으로 수정합니다.
-        # rew_hip = torch.sum(torch.abs(self.dof_pos[:, [1, 7]] - self.default_dof_pos[:, [1, 7]]), dim=1)* self.rew_scales["hip"]
         rew_hip = torch.sum(torch.abs(self.dof_pos[:, [1, 7]] - self.default_dof_pos[:, [1, 7]]), dim=1)* self.pen_scales["hipRewardScale"] #
    
         # === 개별 보상 값 저장을 위한 코드 추가 ===
@@ -539,7 +589,6 @@ class RoK4Biped(VecTask):
         self.rew_buf = torch.clip(self.rew_buf, min=0., max=None)
 
         # add termination reward
-        # self.rew_buf += self.rew_scales["termination"] * self.reset_buf * ~self.timeout_buf
         self.rew_buf += self.rew_scales["terminalReward"] * self.reset_buf * ~self.timeout_buf #
 
         # log episode reward sums
@@ -584,14 +633,18 @@ class RoK4Biped(VecTask):
 
         self.commands[env_ids, 0] = torch_rand_float(self.command_x_range[0], self.command_x_range[1], (len(env_ids), 1), device=self.device).squeeze()
         self.commands[env_ids, 1] = torch_rand_float(self.command_y_range[0], self.command_y_range[1], (len(env_ids), 1), device=self.device).squeeze()
-        self.commands[env_ids, 3] = torch_rand_float(self.command_yaw_range[0], self.command_yaw_range[1], (len(env_ids), 1), device=self.device).squeeze()
+        self.commands[env_ids, 2] = torch_rand_float(self.command_yaw_range[0], self.command_yaw_range[1], (len(env_ids), 1), device=self.device).squeeze()
+        # self.commands[env_ids, 3] = torch_rand_float(self.command_yaw_range[0], self.command_yaw_range[1], (len(env_ids), 1), device=self.device).squeeze()
         self.commands[env_ids] *= (torch.norm(self.commands[env_ids, :2], dim=1) > 0.25).unsqueeze(1) # set small commands to zero
 
-        self.last_actions[env_ids] = 0.
+        self.last_joint_actions[env_ids] = 0.
         self.last_dof_vel[env_ids] = 0.
-        self.feet_air_time[env_ids] = 0.
+        self.foot_air_time[env_ids] = 0.
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 1
+
+        self.cycle_t[env_ids,:] = 0.
+        self.last_clock_actions[env_ids] = 0.
 
         # fill extras
         self.extras["episode"] = {}
@@ -615,16 +668,62 @@ class RoK4Biped(VecTask):
         self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
 
     def pre_physics_step(self, actions):
-        self.actions = actions.clone().to(self.device)
+        # actions 텐서의 크기는 (num_envs, 17)
+
+        # === 👇 액션 분리 로직  ===
+        # 17개 액션을 13개(관절)와 4개(클럭)으로 분리
+        joint_actions_raw = actions[:, :self.num_joint_actions] # 0 ~ 12번 인덱스 (13개)
+        self.clock_actions = actions[:, self.num_joint_actions:].clone().to(self.device) # 13 ~ 16번 인덱스 (4개)
+
+        # 관절 액션에 action_scale 적용
+        # self.joint_actions 변수에 최종 관절 액션 (13개) 저장
+        self.joint_actions = joint_actions_raw * self.action_scale # 크기: (num_envs, 13)
+
+        # === 👇 클럭 액션 처리 로직  ===
+        # TODO: 아래 게인 값들은 하이퍼파라미터이므로 나중에 조정이 필요할 수 있습니다.
+        phi_gain = 0.5   # 위상 오프셋 스무딩 게인
+        delta_gain = 0.5 # 주기 변화 스무딩 게인
+
+        # 클럭 액션 스케일링 (앞 2개는 위상 오프셋, 뒤 2개는 주기 변화량)
+        self.clock_actions[:, :2]  *= 1.0  # 위상 오프셋 (phi) 스케일
+        self.clock_actions[:, 2:4] *= 0.025 # 주기 변화량 (delta) 스케일
+        self.clock_actions[:, 2:4] = torch.abs(self.clock_actions[:, 2:4]) # 주기 변화량은 양수로
+
+        # 클럭 액션 스무딩 (EMA 필터와 유사)
+        self.clock_actions[:, :2]  = self.last_clock_actions[:, :2] * (1 - phi_gain) + self.clock_actions[:, :2] * phi_gain
+        self.clock_actions[:, 2:4] = self.last_clock_actions[:, 2:4] * (1 - delta_gain) + self.clock_actions[:, 2:4] * delta_gain
+        # === 👆 클럭 액션 처리 완료 ===
+
+        # === 👇 PD 제어 루프 (기존 코드와 유사하나 self.joint_actions 사용) ===
         for i in range(self.decimation):
-            torques = torch.clip(self.Kp*(self.action_scale*self.actions + self.default_dof_pos - self.dof_pos) - self.Kd*self.dof_vel,
-                                 -80., 80.)
+            # PD 타겟 계산 시 action_scale이 이미 적용된 self.joint_actions (13개) 사용
+            targets = self.joint_actions + self.default_dof_pos # 크기: (num_envs, 13)
+
+            # 토크 계산 (모든 텐서 크기가 13으로 일치)
+            torques = self.Kp * (targets - self.dof_pos) - self.Kd * self.dof_vel # 크기: (num_envs, 13)
+
+            # TODO: 토크 제한 값 (-80, 80)을 YAML 파일에서 읽어오도록 수정 필요 (예: self.torque_limits)
+            torques = torch.clip(torques, -80., 80.)
+
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(torques))
-            self.torques = torques.view(self.torques.shape)
+            self.torques = torques.view(self.torques.shape) # 계산된 토크 저장 (13개)
+
+            # 시뮬레이션 및 상태 업데이트
             self.gym.simulate(self.sim)
             if self.device == 'cpu':
                 self.gym.fetch_results(self.sim, True)
             self.gym.refresh_dof_state_tensor(self.sim)
+
+        # self.joint_actions = actions.clone().to(self.device)
+        # for i in range(self.decimation):
+        #     torques = torch.clip(self.Kp*(self.action_scale*self.joint_actions + self.default_dof_pos - self.dof_pos) - self.Kd*self.dof_vel,
+        #                          -80., 80.)
+        #     self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(torques))
+        #     self.torques = torques.view(self.torques.shape)
+        #     self.gym.simulate(self.sim)
+        #     if self.device == 'cpu':
+        #         self.gym.fetch_results(self.sim, True)
+        #     self.gym.refresh_dof_state_tensor(self.sim)
 
     def post_physics_step(self):
         # self.gym.refresh_dof_state_tensor(self.sim) # done in step
@@ -642,10 +741,21 @@ class RoK4Biped(VecTask):
         self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 7:10])
         self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[:, 10:13])
         self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
-        forward = quat_apply(self.base_quat, self.forward_vec)
-        heading = torch.atan2(forward[:, 1], forward[:, 0])
-        self.commands[:, 2] = torch.clip(0.5*wrap_to_pi(self.commands[:, 3] - heading), -1., 1.)
+        # forward = quat_apply(self.base_quat, self.forward_vec)
+        # heading = torch.atan2(forward[:, 1], forward[:, 0])
+        # self.commands[:, 2] = torch.clip(0.5*wrap_to_pi(self.commands[:, 3] - heading), -1., 1.)
 
+        # check for no commands 
+        self.no_commands = (torch.norm(self.commands,dim=-1) == 0)
+
+        # update cycle time
+        self.cycle_t[:,0] += self.clock_actions[:,2]
+        self.cycle_t[:,1] += self.clock_actions[:,3]
+        self.cycle_t *= ~self.no_commands.unsqueeze(1)
+        self.cycle_t = torch.where(self.cycle_t > self.cycle_time, 
+                                   self.cycle_t - self.cycle_time, 
+                                   self.cycle_t)
+        
         # compute observations, rewards, resets, ...
         self.check_termination()
         self.compute_reward()
@@ -659,7 +769,7 @@ class RoK4Biped(VecTask):
 
         self.plot_juggler()
         
-        self.last_actions[:] = self.actions[:]
+        self.last_joint_actions[:] = self.joint_actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
 
         if self.viewer and self.enable_viewer_sync and self.debug_viz:

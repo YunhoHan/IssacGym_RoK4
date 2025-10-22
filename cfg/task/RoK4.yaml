@@ -5,8 +5,9 @@ physics_engine: 'physx'
 
 env:
   numEnvs: ${resolve_default:4096,${...num_envs}}
-  numObservations: 48
-  numActions: 13
+  numObservations: 56
+  numJointActions: 13
+  numActions: 17
   envSpacing: 1.  # [m]
   enableDebugVis: False
 
@@ -35,9 +36,9 @@ env:
 
   randomCommandVelocityRanges:
     # train
-    linear_x: [-0.3, 0.7] # min max [m/s]
-    linear_y: [-0.3, 0.3]   # min max [m/s]
-    yaw: [-0.8, 0.8]    # min max [rad/s]
+    linear_x: [-0.3, 0.7] # min max [m/s] <- forward velocity
+    linear_y: [-0.3, 0.3]   # min max [m/s] <- sideways velocity
+    yaw: [-0.8, 0.8]    # min max [rad/s] <- yaw angular velocity
 
   control:
     # PD Drive parameters:
