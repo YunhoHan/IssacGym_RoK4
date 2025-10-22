@@ -1,0 +1,156 @@
+# used to create the object
+name: RoK4
+
+physics_engine: 'physx'
+
+env:
+  numEnvs: ${resolve_default:4096,${...num_envs}}
+  numObservations: 48
+  numActions: 13
+  envSpacing: 1.  # [m]
+  enableDebugVis: False
+
+  terrain:
+    terrainType: plane # none, plane, or trimesh
+    staticFriction: 1.0  # [-]
+    dynamicFriction: 1.0  # [-]
+    restitution: 0.        # [-]
+    # rough terrain only:
+    curriculum: true
+    maxInitMapLevel: 0
+    mapLength: 8.
+    mapWidth: 8.
+    numLevels: 10
+    numTerrains: 20
+    # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
+    terrainProportions: [0.1, 0.1, 0.35, 0.25, 0.2]
+    # tri mesh only:
+    slopeTreshold: 0.5
+
+  baseInitState:
+    pos: [0.0442, 0, 0.95268] # x,y,z [m] # 0.0442 0 0.905 gait ready x,  #0.95268 < = with legs stretched out
+    rot: [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat]
+    vLinear: [0.0, 0.0, 0.0]  # x,y,z [m/s]
+    vAngular: [0.0, 0.0, 0.0]  # x,y,z [rad/s]
+
+  randomCommandVelocityRanges:
+    # train
+    linear_x: [-0.3, 0.3] # min max [m/s]
+    linear_y: [-0.3, 0.3]   # min max [m/s]
+    yaw: [-0.8, 0.8]    # min max [rad/s]
+
+  control:
+    # PD Drive parameters:
+    stiffness: 80.0  # [N*m/rad]
+    damping: 2.0     # [N*m*s/rad]
+    # action scale: target angle = actionScale * action + defaultAngle
+    actionScale: 0.5
+    # decimation: Number of control action updates @ sim DT per policy DT
+    decimation: 4
+
+  defaultJointAngles:  # = target angles when action = 0.0
+    # # 왼쪽 다리 (Left Leg)
+    L_Hip_Yaw_Joint     : -0.0   
+    L_Hip_Roll_Joint    : -0.0   
+    L_Hip_Pitch_Joint   : -0.29670597283   
+    L_Knee_Pitch_Joint  :  0.72954762733   
+    L_Ankle_Pitch_Joint : -0.43284165449   
+    L_Ankle_Roll_Joint  : -0.0 
+
+    # 오른쪽 다리 (Right Leg)
+    R_Hip_Yaw_Joint     : -0.0  
+    R_Hip_Roll_Joint    : -0.0
+    R_Hip_Pitch_Joint   : -0.29670597283
+    R_Knee_Pitch_Joint  :  0.72954762733
+    R_Ankle_Pitch_Joint : -0.43284165449
+    R_Ankle_Roll_Joint  : -0.0
+
+    # # 몸통 (Torso)
+    Torso_Yaw_Joint       : 0.000000   # Joint 0 (0.000000 degrees)
+
+  urdfAsset:
+    file: "urdf/rok4/urdf/rok4_train.urdf"
+    test_file: "urdf/rok4/urdf/rok4_train.urdf" #"urdf/rok3_model/urdf/rok3_model(view).urdf"
+    footName: Foot # SHANK if collapsing fixed joint, FOOT otherwise
+    kneeName: Thigh
+    collapseFixedJoints: false
+    fixBaseLink: false
+    defaultDofDriveMode: 4 # see GymDofDriveModeFlags (0 is none, 1 is pos tgt, 2 is vel tgt, 4 effort)
+
+  learn:
+    allowKneeContacts: true
+    # rewards
+    terminalReward: 0.0
+    linearVelocityXYRewardScale: 1.0
+    linearVelocityZRewardScale: -4.0
+    angularVelocityXYRewardScale: -0.05
+    angularVelocityZRewardScale: 0.5
+    orientationRewardScale: -0. #-1.
+    torqueRewardScale: -0.00002 # -0.000025
+    jointAccRewardScale: -0.0005 # -0.0025
+    baseHeightRewardScale: -0.0 #5
+    feetAirTimeRewardScale:  1.0
+    kneeCollisionRewardScale: -0.25 
+    feetStumbleRewardScale: -0. #-2.0
+    actionRateRewardScale: -0.01
+    # cosmetics
+    hipRewardScale: -0. #25
+
+    # normalization
+    linearVelocityScale: 2.0
+    angularVelocityScale: 0.25
+    dofPositionScale: 1.0
+    dofVelocityScale: 0.05
+    heightMeasurementScale: 5.0
+
+    # noise 
+    addNoise: true
+    noiseLevel: 1.0 # scales other values
+    dofPositionNoise: 0.01
+    dofVelocityNoise: 1.5
+    linearVelocityNoise: 0.1
+    angularVelocityNoise: 0.2
+    gravityNoise: 0.05
+    heightMeasurementNoise: 0.06
+
+    #randomization
+    randomizeFriction: true
+    frictionRange: [0.5, 1.25]
+    pushRobots: true
+    pushInterval_s: 15
+
+    # episode length in seconds
+    episodeLength_s: 20
+
+  # viewer cam:
+  viewer:
+    refEnv: 0
+    pos: [0, 0, 10]  # [m]
+    lookat: [1., 1, 9]  # [m]
+
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
+
+sim:
+  dt: 0.002
+  substeps: 1
+  up_axis: "z"
+  use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
+  gravity: [0.0, 0.0, -9.81]
+  physx:
+    num_threads: ${....num_threads}
+    solver_type: ${....solver_type}
+    use_gpu: ${contains:"cuda",${....sim_device}} # set to False to run on CPU
+    num_position_iterations: 4
+    num_velocity_iterations: 1
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 100.0
+    default_buffer_size_multiplier: 5.0
+    max_gpu_contact_pairs: 8388608 # 8*1024*1024
+    num_subscenes: ${....num_subscenes}
+    contact_collection: 1 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (broken - do not use!)
+
+task:
+  randomize: False
