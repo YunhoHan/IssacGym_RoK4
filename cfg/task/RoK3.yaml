@@ -1,0 +1,389 @@
+# used to create the object
+name: RoK3
+
+physics_engine: 'physx'
+
+env:
+  numEnvs: 4096
+  numObservations: 56 # 70
+  numPrivileged: 0 # 12
+  observeSteps: 1       # how many sample data(time step) in history buffer  
+  numStates: 70
+  numActions: 17 # 13 
+  envSpacing: 1.  # [m]
+  enableDebugVis: False
+  test: False
+  
+  terrain:
+    terrainType: plane # none, plane, or trimesh
+    staticFriction: 1.  # [-]
+    dynamicFriction: 1.  # [-]
+    restitution: 0.5        # [-]
+    # rough terrain only:
+    curriculum: true
+    maxInitMapLevel: 0
+    mapLength: 8.
+    mapWidth: 8.
+    numLevels: 20
+    numTerrains: 30
+    # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete]
+    # terrainProportions: [0.1, 0.1, 0.1, 0.1, 0.1, 0.5]
+    terrainProportions: [0.2, 0.2, 0.15, 0.2, 0.18]
+    # tri mesh only:
+    slopeTreshold: 0.25
+
+  baseInitState:
+    pos: [0.0, 0.0, 1.] # x,y,z [m]
+    rot: [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat]
+    vLinear: [0.0, 0.0, 0.0]  # x,y,z [m/s]
+    vAngular: [0.0, 0.0, 0.0]  # x,y,z [rad/s]
+
+  randomCommandVelocityRanges:
+    # train
+    linear_x: [-0.5, 0.5] # min max [m/s]
+    linear_y: [-0.3, 0.3]   # min max [m/s]
+    yaw: [-0.8, 0.8]    # min max [rad/s]
+
+  EnvsNumRanges:
+    stand_env_range               : 200
+    only_plus_x_envs_range        : 200 
+    only_minus_x_envs_range       : 200
+    only_plus_y_envs_range        : 200
+    only_minus_y_envs_range       : 200
+    only_plus_yaw_envs_range      : 200
+    only_minus_yaw_envs_range     : 200
+    plus_x_plus_yaw_envs_range    : 200
+    plus_x_minus_yaw_envs_range   : 200
+    minus_x_plus_yaw_envs_range   : 200
+    minus_x_minus_yaw_envs_range  : 200
+
+  dof_porperties:
+    # joint damping and stiffness
+    stiffness: [0,0,0,0,0,0,
+                0,0,0,0,0,0,
+                0]
+
+    damping:   [0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0]
+
+    friction:  [0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0]
+
+    armature:  [0,0,0,0,0,0,
+                0,0,0,0,0,0,
+                0]
+
+    torque_limits: [ 150.0, 150.0, 300.0, 480.0, 180.0, 180.0,
+                     150.0, 150.0, 300.0, 480.0, 180.0, 180.0,
+                     150.0] 
+
+  control:
+    # PD Drive parameters:
+    Kp: [100.0, 100.0, 150.0, 300.0, 150.0, 100.0,        # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+         100.0, 100.0, 150.0, 300.0, 150.0, 100.0,        # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+         100.0]                                            # 허리 (WST)  [N*m/rad]
+
+    Kd: [2., 3., 3., 6., 3., 2.5,                    # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+         2., 3., 3., 6., 3., 2.5,                    # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+         0.5]                                             # 허리 (WST)  [N*m*s/rad]
+
+    # Kp: [1000.0, 1250.0, 2000.0, 2500.0, 1000.0, 500.0,        # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+    #      1000.0, 1250.0, 2000.0, 2500.0, 1000.0, 500.0,        # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+    #      500.0]                                            # 허리 (WST)  [N*m/rad]
+         
+    # Kd: [5., 10., 10., 20., 5., 2.5,                    # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+    #      5., 10., 10., 20., 5., 2.5,                    # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+    #      2.5]                                             # 허리 (WST)  [N*m*s/rad]
+
+
+    # action scale: target angle = actionScale * action + defaultAngle
+    actionScale: 0.5
+    # decimation: Number of control action updates @ sim DT per policy DT
+    decimation: 5
+
+  defaultJointAngles:  # = target angles when action = 0.0
+    # # 왼쪽 다리 (Left Leg)
+    L_Hip_Yaw_Joint     : -0.0   
+    L_Hip_Roll_Joint    : -0.0   
+    L_Hip_Pitch_Joint   : -0.3   
+    L_Knee_Pitch_Joint  :  0.5   
+    L_Ankle_Pitch_Joint : -0.3   
+    L_Ankle_Roll_Joint  : -0.0 
+
+    # 오른쪽 다리 (Right Leg)
+    R_Hip_Yaw_Joint     : -0.0  
+    R_Hip_Roll_Joint    : -0.0
+    R_Hip_Pitch_Joint   : -0.3
+    R_Knee_Pitch_Joint  :  0.5
+    R_Ankle_Pitch_Joint : -0.3
+    R_Ankle_Roll_Joint  : -0.0
+
+    # # 몸통 (Torso)
+    Torso_Yaw_Joint       : 0.000000   # Joint 0 (0.000000 degrees)
+
+
+    # 왼쪽 다리 (Left Leg)
+    # L_Hip_yaw_joint     : -0.000000   # (from Joint 1)
+    # L_Hip_roll_joint    : -0.001635   # (from Joint 2)
+    # L_Hip_pitch_joint   : -0.657986   # (from Joint 3)
+    # L_Knee_joint        :  1.205825   # (from Joint 4)
+    # L_Ankle_pitch_joint : -0.548033   # (from Joint 5)
+    # L_Ankle_roll_joint  :  0.001635   # (from Joint 6)
+
+    # # 오른쪽 다리 (Right Leg)
+    # R_Hip_yaw_joint     : -0.000000   # (from Joint 7)
+    # R_Hip_roll_joint    :  0.001839   # (from Joint 8)
+    # R_Hip_pitch_joint   : -0.657986   # (from Joint 9)
+    # R_Knee_joint        :  1.205824   # (from Joint 10)
+    # R_Ankle_pitch_joint : -0.548032   # (from Joint 11)
+    # R_Ankle_roll_joint  : -0.001839   # (from Joint 12)
+
+    # 몸통 (Torso)
+    # torso_joint       : 0.000000   # (from Joint 0)
+
+  urdfAsset:
+    # file: "urdf/anymal_c/urdf/anymal_minimal.urdf"
+    file: "urdf/rok4/urdf/rok4_train.urdf"
+    test_file: "urdf/rok4/urdf/rok4_train.urdf" #"urdf/rok3_model/urdf/rok3_model(view).urdf"
+    footName: Foot # SHANK if collapsing fixed joint, FOOT otherwise
+    calfName: Calf
+    camera_attach_link : Upper_Body_Link
+    collapseFixedJoints: False
+    fixBaseLink: False   
+    defaultDofDriveMode: 4 # see GymDofDriveModeFlags (0 is none, 1 is pos tgt, 2 is vel tgt, 4 effort)
+
+  sensor:
+    forward_camera:
+      debug_img: True
+      width  : 256 
+      height : 256
+      position: [0., 0.0, 1.]
+      rotation: [0.0, 45., 0.0]
+      horizontal_fov: 87.0 # 범위 동일 = 무작위화 없음
+      near_plane: 0.5
+      far_plane: 10.0
+
+
+  learn:
+    noise:
+      addNoise: false
+      noiseLevel: 1. # scales other values
+      dofPositionNoise: 0.05
+      dofVelocityNoise: 2.
+      angularVelocityNoise: 0.5
+      gravityNoise: 0.05
+      heightMeasurementNoise: 0.06
+      ftsensorNoise : 0.5
+    
+    sensor_latencies: # <= 0.05
+      sensor_imu: [0.005, 0.015]            # IMU 센서 지연 범위 [min, max] (초)
+      sensor_joint_encoders: [0.002, 0.010] # 관절 엔코더 지연 범위 (초)
+      sensor_foot_contact: [0.008, 0.020]   # 발 센서 지연 범위 (초)
+      zero_delay: [0.,0.]
+
+
+
+
+    allowcalfContacts: True
+    soft_dof_pos_limit: 0.9
+    # rewards
+    reward:
+        rew_ang_vel_z: 1.25
+        rew_lin_vel_xy: 1.5
+        penalty_phi     : 0.0025
+        rew_feet_air_time: 0.0
+        penalty_lin_vel_z: -0.75
+        penalty_ang_vel_xy: -0.05
+        foot_gap_y_penalty: -0
+        foot_gap_x_penalty: -0
+        leg_gap_y_penalty: -0.
+        penalty_base_ori: -1.
+        penalty_base_height: -1.5
+        penalty_foot_height: -0
+        penalty_short_swing: -0
+        penalty_swing_stance_phase: -0
+        penalty_default_pos_standing: -0
+        penalty_hip_yaw: -0
+        penalty_hip_roll: -0
+        penalty_ankle_roll: -0
+        penalty_calf_contact: -0.0
+        penalty_zero_contact_feet: -0.0
+        penalty_default_grf: -0.0
+        penalty_com_sup    : -0.0
+        penalty_dof_limit: -0.0
+        penalty_torques: 0
+        penalty_joint_vel: 0
+        penalty_joint_energy: -0
+        penalty_joint_acc: -0.0
+        penalty_dof_vel_limit: -0.0
+        penalty_wighted_torques: -0.0
+        penalty_action_smoothness1: -0.0
+        penalty_action_smoothness2: -0.0
+        penalty_actions_limit: -0.0
+
+    # reward:
+    #     rew_ang_vel_z: 1.25
+    #     rew_lin_vel_xy: 1.5
+    #     penalty_phi     : 0.0025
+    #     rew_feet_air_time: 0.0
+    #     penalty_lin_vel_z: -0.75
+    #     penalty_ang_vel_xy: -0.05
+    #     foot_gap_y_penalty: -2.5
+    #     foot_gap_x_penalty: -1.5
+    #     leg_gap_y_penalty: -5.
+    #     penalty_base_ori: -1.
+    #     penalty_base_height: -1.5
+    #     penalty_foot_height: -2.75
+    #     penalty_short_swing: -0.05
+    #     penalty_swing_stance_phase: -0.7
+    #     penalty_default_pos_standing: -0.15
+    #     penalty_hip_yaw: -1.25
+    #     penalty_hip_roll: -1.5
+    #     penalty_ankle_roll: -1.5
+    #     penalty_calf_contact: -0.25
+    #     penalty_zero_contact_feet: -0.5
+    #     penalty_default_grf: -0.00025
+    #     penalty_com_sup    : -0.5
+    #     penalty_dof_limit: -10.0
+    #     penalty_torques: 0
+    #     penalty_joint_vel: 0
+    #     penalty_joint_energy: -5e-6
+    #     penalty_joint_acc: -0.0005
+    #     penalty_dof_vel_limit: -0.0075
+    #     penalty_wighted_torques: -0.05
+    #     penalty_action_smoothness1: -0.0075
+    #     penalty_action_smoothness2: -0.005
+    #     penalty_actions_limit: -0.0025
+
+    obs_scales:
+      dofPositionScale            : 1.0
+      dofVelocityScale            : 1.
+      angularVelocityScale        : 0.25
+      ftSensorScale               : 0.05
+    
+
+    #randomization
+    randomizeFriction: true
+    frictionRange: [0.5, 1.5]
+    pushRobots: true  
+    pushInterval_s: 14
+    cmdInterval_s: 13
+    zerocmdInterval_s: 10
+    freezecmdInterval_s : 15
+
+    # episode length in seconds
+    episodeLength_s: 20
+  # viewer cam:
+  viewer:
+    refEnv: 0
+    pos: [0, 0, 10]  # [m]
+    lookat: [1., 1, 9]  # [m]
+
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
+
+sim:
+  dt: 0.002  # sim dt, policy dt : dt * (decimation + 1)
+  substeps: 1
+  up_axis: "z"
+  use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
+  gravity: [0.0, 0.0, -9.81]
+  physx:
+    num_threads: ${....num_threads}
+    solver_type: ${....solver_type}
+    use_gpu: ${contains:"cuda",${....sim_device}} # set to False to run on CPU
+    num_position_iterations: 4 # 1~255
+    num_velocity_iterations: 1 # 1~255
+    contact_offset: 0.02
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 100.0
+    default_buffer_size_multiplier: 5.0
+    max_gpu_contact_pairs: 8388608 # 12582912 #10485760 #8388608 # 8*1024*1024
+    num_subscenes: ${....num_subscenes}
+    contact_collection: 1 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (broken - do not use!)
+  # foundLostAggregatePairsCapacity: 10049151  # 이 줄을 추가
+task:
+  randomize: False
+  delay_proprioceptive : False
+  randomization_params:
+    frequency: 200   # Define how many environment steps between generating new randomizations
+    observations:
+      range: [0, 0.] # range for the white noise
+      operation: "additive"
+      distribution: "gaussian"
+    actions:
+      range: [0., .05]
+      operation: "additive" # or scaling (곱셈)
+      distribution: "gaussian"
+    sim_params: 
+      gravity:
+        range: [0, 0.05]
+        operation: "additive"
+        distribution: "gaussian"
+        schedule: "quadratic"  # "linear" will linearly interpolate between no rand and max rand
+        schedule_steps: 100 # 500번째 스텝까지만 선형적 증가 이후엔 항상 최대 
+
+    actor_params:
+      minipb:
+        rigid_body_properties:
+          mass: 
+            range: [0.75, 1.25]
+            operation: "scaling"
+            distribution: "uniform"
+            setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
+            schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
+            schedule_steps: 100
+        rigid_shape_properties:
+          friction:
+            num_buckets: 500
+            range: [0.0, 0.]
+            operation: "additive"
+            distribution: "uniform"
+            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
+            schedule_steps: 100
+          restitution:
+            range: [0.75, 1.25]
+            operation: "scaling"
+            distribution: "uniform"
+            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
+            schedule_steps: 100
+        dof_properties:
+          damping: 
+            range: [0.75, 1.25]
+            operation: "scaling"
+            distribution: "uniform"
+            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
+            schedule_steps: 100
+          stiffness: 
+            range: [0.75, 1.25]
+            operation: "scaling"
+            distribution: "uniform"
+            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
+            schedule_steps: 100
+          lower:
+            range: [-0.05, 0.05]
+            operation: "additive"
+            distribution: "gaussian"
+            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
+            schedule_steps: 100
+          upper:
+            range: [-0.05, 0.05]
+            operation: "additive"
+            distribution: "gaussian"
+            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
+            schedule_steps: 100
+          friction:
+            range: [0.0, 0.1]
+            operation: "additive"
+            distribution: "uniform"
+            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
+            schedule_steps: 200
+          armature:
+            range: [0.0, 0.0025]
+            operation: "additive"
+            distribution: "uniform"
+            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
+            schedule_steps: 100

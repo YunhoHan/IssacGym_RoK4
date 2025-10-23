@@ -110,12 +110,14 @@ env:
     allowKneeContacts: true
     # 
     rew_scales:
+      # motion related
       terminalReward: 0.0
       linearVelocityXYRewardScale: 1.0
       angularVelocityZRewardScale: 0.5
       feetAirTimeRewardScale:  1.0
 
     pen_scales:
+      # motion related
       linearVelocityZRewardScale: -4.0
       angularVelocityXYRewardScale: -0.05
       orientationRewardScale: -0. #-1.
@@ -123,6 +125,13 @@ env:
       jointAccRewardScale: -0.0005 # -0.0025
       baseHeightRewardScale: -0.0 #5
 
+      # gait related
+      swingStancePhase: -0.7
+      shortSwing: -0.05
+      footHeight: -2.75
+      defaultPosStanding: -0.15
+
+      # safety 
       kneeCollisionRewardScale: -0.25 
       feetStumbleRewardScale: -0. #-2.0
       actionRateRewardScale: -0.01

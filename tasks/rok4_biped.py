@@ -69,7 +69,7 @@ class RoK4Biped(VecTask):
         self.num_legs = 2
 
         self.min_swing_time = 0.35
-        self.cycle_time = 0.8
+        self.cycle_time = 1.5
 
         self.num_joint_actions = self.cfg["env"]["numJointActions"]
 
@@ -170,10 +170,12 @@ class RoK4Biped(VecTask):
         actor_root_state = self.gym.acquire_actor_root_state_tensor(self.sim)
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         net_contact_forces = self.gym.acquire_net_contact_force_tensor(self.sim)
+        rigid_body_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
 
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
 
         # create some wrapper tensors for different slices
         self.root_states = gymtorch.wrap_tensor(actor_root_state)
@@ -181,6 +183,10 @@ class RoK4Biped(VecTask):
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3) # shape: num_envs, num_bodies, xyz axis
+
+        self.rigid_body_state = gymtorch.wrap_tensor(rigid_body_tensor)
+        self.rigid_body_pos = self.rigid_body_state.view(self.num_envs, self.num_bodies, 13)[:,:,:3]
+        self.rigid_body_vel = self.rigid_body_state.view(self.num_envs, self.num_bodies, 13)[:,:,7:10]
 
         # initialize some data used later on
         self.common_step_counter = 0
@@ -557,6 +563,11 @@ class RoK4Biped(VecTask):
         # action rate penalty
         rew_action_rate = torch.sum(torch.square(self.last_joint_actions - self.joint_actions), dim=1) * self.pen_scales["actionRateRewardScale"] #
 
+        self.foot_pos = self.rigid_body_pos[:, self.feet_indices, :]
+        foot_velocities = self.rigid_body_vel[:, self.feet_indices, :]
+        foot_contact_forces = self.contact_forces[:, self.feet_indices, :]
+        self.foot_contact = torch.norm(foot_contact_forces, dim=-1) > 1.
+
         # air time reward
         # contact = torch.norm(contact_forces[:, feet_indices, :], dim=2) > 1.
         contact = self.contact_forces[:, self.feet_indices, 2] > 1.
@@ -570,13 +581,70 @@ class RoK4Biped(VecTask):
         # RoK-4의 Hip Roll 관절 인덱스인 1번과 7번으로 수정합니다.
         rew_hip = torch.sum(torch.abs(self.dof_pos[:, [1, 7]] - self.default_dof_pos[:, [1, 7]]), dim=1)* self.pen_scales["hipRewardScale"] #
    
+        # Swing/Stance 일관성 패널티
+ 
+        # 스윙 비율 및 시작 시점 정의 (하이퍼파라미터)
+        swing_ratio = 0.4  # 예: 전체 주기의 40%를 스윙에 할당
+        stance_ratio = 1.0 - swing_ratio  # 예: 전체 주기의 60%를 스탠스에 할당
+        swing_start_phase = 0.5 + (stance_ratio-swing_ratio)/4 # 예: 스윙 시작 시점 (0.5에서 약간 오프셋)
+
+        # 현재 시간을 0~1 사이의 "정규화된 위상(phase)"으로 변환
+        normalized_phase = self.cycle_t / self.cycle_time # (값은 0~1 사이)
+
+        # 스윙 종료 시점 계산 (1.0이 넘어가면 래핑(wrapping) 처리)
+        swing_end_phase = (swing_start_phase + swing_ratio) % 1.0
+
+        # 위상 정의 (경계 래핑(wrapping) 처리)
+        if swing_start_phase < swing_end_phase:
+            # Case 1: 래핑 없음 (예: start=0.5, end=0.9)
+            swing_phase = (normalized_phase >= swing_start_phase) & \
+                          (normalized_phase < swing_end_phase)
+        else:
+            # Case 2: 래핑 발생 (예: start=0.8, end=0.2)
+            swing_phase = (normalized_phase >= swing_start_phase) | \
+                          (normalized_phase < swing_end_phase)
+        
+        # 스탠스 구간은 스윙 구간의 반대
+        stance_phase = ~swing_phase
+
+        
+        foot_force_norm = torch.norm(foot_contact_forces, dim=-1)
+        foot_velocities_squared_sum = torch.sum(torch.square(foot_velocities), dim=-1)
+
+        swing_stance_penalty = torch.clip(torch.sum(foot_velocities_squared_sum * stance_phase, dim=-1), 0, 10) * 0.05 + \
+                               torch.clip(torch.sum(foot_force_norm * swing_phase, dim=-1), 0, 30) * 0.025
+        
+        pen_swing_stance_phase = swing_stance_penalty * ~self.no_commands * self.pen_scales["swingStancePhase"]
+
+        # 최소 스윙 시간 패널티
+        self.foot_swing_state[~self.foot_contact] = True
+        self.foot_swing_state[self.foot_contact] = False
+        
+        current_time_tensor = self.progress_buf * self.dt # 현재 시간 (에피소드 기준)
+        self.foot_swing_start_time[~self.foot_contact] = current_time_tensor.unsqueeze(1).repeat(1, self.num_legs)[~self.foot_contact]
+
+        swing_time = current_time_tensor.unsqueeze(1) - self.foot_swing_start_time
+        contact_made = (swing_time > 0.) * self.foot_contact # 스윙 중(시간>0)에 착지(contact)
+        
+        pen_short_swing = torch.sum(torch.relu(self.min_swing_time - swing_time) * contact_made, dim=-1) * self.pen_scales["shortSwing"]
+
+        # 3. 발 높이(Foot Clearance) 패널티
+        ref_foot_height = 0.075
+        # 스윙 단계(swing_phase)이고, 커맨드가 있을 때(~self.no_commands)만 패널티 적용
+        foot_height_err = torch.sum(torch.relu(ref_foot_height - self.foot_pos[:, :, 2]), dim=-1)
+        pen_foot_height = foot_height_err * torch.any(swing_phase, dim=-1) * ~self.no_commands * self.pen_scales["footHeight"]
+        
+        # 4. 정지 시 기본 자세 패널티
+        default_pos_err = torch.square(self.default_dof_pos - self.dof_pos)
+        pen_default_pos_standing = torch.sum(default_pos_err, dim=-1) * self.no_commands * self.pen_scales["defaultPosStanding"]
+
         # === 개별 보상 값 저장을 위한 코드 추가 ===
         self.reward_container.clear()
         reward_terms = [
              "rew_lin_vel_xy", "rew_ang_vel_z", "rew_lin_vel_z", "rew_ang_vel_xy",
              "rew_orient", "rew_base_height", "rew_torque", "rew_joint_acc",
              "rew_collision", "rew_action_rate", "rew_airTime",
-             "rew_hip", "rew_stumble"
+             "rew_hip", "rew_stumble", "pen_swing_stance_phase", "pen_short_swing", "pen_foot_height", "pen_default_pos_standing"
         ]
 
         for term in reward_terms:
@@ -585,7 +653,8 @@ class RoK4Biped(VecTask):
 
         # total reward
         self.rew_buf = rew_lin_vel_xy + rew_ang_vel_z + rew_lin_vel_z + rew_ang_vel_xy + rew_orient + rew_base_height +\
-                    rew_torque + rew_joint_acc + rew_collision + rew_action_rate + rew_airTime + rew_hip + rew_stumble
+                       rew_torque + rew_joint_acc + rew_collision + rew_action_rate + rew_airTime + rew_hip + rew_stumble +\
+                    pen_swing_stance_phase + pen_short_swing + pen_foot_height + pen_default_pos_standing
         self.rew_buf = torch.clip(self.rew_buf, min=0., max=None)
 
         # add termination reward
@@ -646,6 +715,10 @@ class RoK4Biped(VecTask):
         self.cycle_t[env_ids,:] = 0.
         self.last_clock_actions[env_ids] = 0.
 
+        self.last_foot_contacts[env_ids] = 0.
+        self.foot_swing_start_time[env_ids] = 0.
+        self.foot_swing_state[env_ids] = False
+
         # fill extras
         self.extras["episode"] = {}
         for key in self.episode_sums.keys():
@@ -703,7 +776,7 @@ class RoK4Biped(VecTask):
             torques = self.Kp * (targets - self.dof_pos) - self.Kd * self.dof_vel # 크기: (num_envs, 13)
 
             # TODO: 토크 제한 값 (-80, 80)을 YAML 파일에서 읽어오도록 수정 필요 (예: self.torque_limits)
-            torques = torch.clip(torques, -80., 80.)
+            torques = torch.clip(torques, -300., 300.)
 
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(torques))
             self.torques = torques.view(self.torques.shape) # 계산된 토크 저장 (13개)
@@ -729,6 +802,7 @@ class RoK4Biped(VecTask):
         # self.gym.refresh_dof_state_tensor(self.sim) # done in step
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
 
         self.progress_buf += 1
         self.randomize_buf += 1
