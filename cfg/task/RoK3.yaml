@@ -192,36 +192,37 @@ env:
     reward:
         rew_ang_vel_z: 1.25
         rew_lin_vel_xy: 1.5
-        penalty_phi     : 0.0025
         rew_feet_air_time: 0.0
+
+        penalty_phi     : 0.0025
         penalty_lin_vel_z: -0.75
         penalty_ang_vel_xy: -0.05
-        foot_gap_y_penalty: -0
-        foot_gap_x_penalty: -0
-        leg_gap_y_penalty: -0.
+        foot_gap_y_penalty: -2.5
+        foot_gap_x_penalty: -1.5
+        leg_gap_y_penalty: -5.
         penalty_base_ori: -1.
         penalty_base_height: -1.5
-        penalty_foot_height: -0
-        penalty_short_swing: -0
-        penalty_swing_stance_phase: -0
-        penalty_default_pos_standing: -0
-        penalty_hip_yaw: -0
-        penalty_hip_roll: -0
-        penalty_ankle_roll: -0
-        penalty_calf_contact: -0.0
-        penalty_zero_contact_feet: -0.0
-        penalty_default_grf: -0.0
-        penalty_com_sup    : -0.0
-        penalty_dof_limit: -0.0
+        penalty_foot_height: -2.75
+        penalty_short_swing: -0.05
+        penalty_swing_stance_phase: -0.7
+        penalty_default_pos_standing: -0.15
+        penalty_hip_yaw: -1.25
+        penalty_hip_roll: -1.5
+        penalty_ankle_roll: -1.5
+        penalty_calf_contact: -0.25
+        penalty_zero_contact_feet: -0.5
+        penalty_default_grf: -0.00025
+        penalty_com_sup    : -0.5
+        penalty_dof_limit: -10.0
         penalty_torques: 0
         penalty_joint_vel: 0
-        penalty_joint_energy: -0
-        penalty_joint_acc: -0.0
-        penalty_dof_vel_limit: -0.0
-        penalty_wighted_torques: -0.0
-        penalty_action_smoothness1: -0.0
-        penalty_action_smoothness2: -0.0
-        penalty_actions_limit: -0.0
+        penalty_joint_energy: -5e-6
+        penalty_joint_acc: -0.0005
+        penalty_dof_vel_limit: -0.0075
+        penalty_wighted_torques: -0.05
+        penalty_action_smoothness1: -0.0075
+        penalty_action_smoothness2: -0.005
+        penalty_actions_limit: -0.0025
 
     # reward:
     #     rew_ang_vel_z: 1.25

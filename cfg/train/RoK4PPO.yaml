@@ -54,7 +54,7 @@ params:
     normalize_value: True
     normalize_advantage: True
     value_bootstrap: True
-    clip_actions: False
+    clip_actions: True
     num_actors: ${....task.env.numEnvs}
     reward_shaper:
       scale_value: 1.0
@@ -73,7 +73,7 @@ params:
     critic_coef: 2
     clip_value: True
     seq_len: 4 # only for rnn
-    bounds_loss_coef: 0.
+    bounds_loss_coef: 0.001
 
     max_epochs: ${resolve_default:50000,${....max_iterations}}
     save_best_after: 100

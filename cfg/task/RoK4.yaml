@@ -10,6 +10,7 @@ env:
   numActions: 17
   envSpacing: 1.  # [m]
   enableDebugVis: False
+  test: True
 
   terrain:
     terrainType: plane # none, plane, or trimesh
@@ -29,7 +30,8 @@ env:
     slopeTreshold: 0.5
 
   baseInitState:
-    pos: [0.0442, 0, 0.95268] # x,y,z [m] # 0.0442 0 0.905 gait ready x,  #0.95268 < = with legs stretched out
+    pos: [0.0442, 0, 0.98268] # x,y,z [m] # 0.0442 0 0.905 gait ready x,  #0.95268 < = with legs stretched out 0.95268
+
     rot: [0.0, 0.0, 0.0, 1.0] # x,y,z,w [quat]
     vLinear: [0.0, 0.0, 0.0]  # x,y,z [m/s]
     vAngular: [0.0, 0.0, 0.0]  # x,y,z [rad/s]
@@ -39,6 +41,20 @@ env:
     linear_x: [-0.3, 0.7] # min max [m/s] <- forward velocity
     linear_y: [-0.3, 0.3]   # min max [m/s] <- sideways velocity
     yaw: [-0.8, 0.8]    # min max [rad/s] <- yaw angular velocity
+
+  EnvsNumRanges:
+    stand_env_range               : 200
+    only_plus_x_envs_range        : 200 
+    only_minus_x_envs_range       : 200
+    only_plus_y_envs_range        : 200
+    only_minus_y_envs_range       : 200
+    only_plus_yaw_envs_range      : 200
+    only_minus_yaw_envs_range     : 200
+    plus_x_plus_yaw_envs_range    : 200
+    plus_x_minus_yaw_envs_range   : 200
+    minus_x_plus_yaw_envs_range   : 200
+    minus_x_minus_yaw_envs_range  : 200
+
 
   control:
     # PD Drive parameters:
@@ -64,18 +80,35 @@ env:
     #      15.0, 15.0, 15.0, 15.0, 15.0, 18.0,              # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
     #      12.0]                                            # 허리 (WST)    [N*m*s/rad]
     
-    Kp: [150.0, 150.0, 300.0, 300.0, 180.0, 180.0,    # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
-         150.0, 150.0, 300.0, 300.0, 180.0, 180.0,    # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
-         120.0]                                       # 허리 (WST)  [N*m/rad]
+    Kp: [75.0, 75.0, 150.0, 150.0, 90.0, 90.0,    # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+         75.0, 75.0, 150.0, 150.0, 90.0, 90.0,    # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+         75.0]                                       # 허리 (WST)  [N*m/rad]
 
-    Kd: [1.5, 1.5, 3.0, 3.0, 1.8, 1.8,                # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
-         1.5, 1.5, 3.0, 3.0, 1.8, 1.8,                # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
-         1.2]                                         # 허리 (WST)    [N*m*s/rad]
+    Kd: [2.5, 2.5, 5.0, 5.0, 3.0, 3.0,                # 왼다리 (LHY, LHR, LHP, LKN, LAP, LAR)
+         2.5, 2.5, 5.0, 5.0, 3.0, 3.0,                # 오른다리 (RHY, RHR, RHP, RKN, RAP, RAR)
+         2.5]                                         # 허리 (WST)    [N*m*s/rad]
 
     # action scale: target angle = actionScale * action + defaultAngle
     actionScale: 0.5
     # decimation: Number of control action updates @ sim DT per policy DT
     decimation: 4
+
+  dof_properties:
+    torque_limits: [ 150.0, 150.0, 300.0, 480.0, 180.0, 180.0,  # L_Leg
+                     150.0, 150.0, 300.0, 480.0, 180.0, 180.0,  # R_Leg
+                     150.0]                                     # Torso
+
+    damping:   [0.250538652440252, 0.250538652440252, 0.50107730488, 0.50107730488, 0.130617712993805, 0.130617712993805,
+                0.250538652440252, 0.250538652440252, 0.50107730488, 0.50107730488, 0.130617712993805, 0.130617712993805,
+                0.250538652440252]
+
+    friction:  [0.226537899603487, 0.226537899603487, 0.4530757992, 3.39806849405, 1.79822954112, 1.79822954112,
+                0.226537899603487, 0.226537899603487, 0.4530757992, 3.39806849405, 1.79822954112, 1.79822954112,
+                0.226537899603487]
+
+    armature:  [0.087396415395941, 0.087396415395941, 0.17479283079, 0.17479283079, 0.084040769086151, 0.084040769086151,
+                0.087396415395941, 0.087396415395941, 0.17479283079, 0.17479283079, 0.084040769086151, 0.084040769086151,
+                0.087396415395941]
 
   defaultJointAngles:  # = target angles when action = 0.0
     # # 왼쪽 다리 (Left Leg)
@@ -102,6 +135,7 @@ env:
     test_file: "urdf/rok4/urdf/rok4_train.urdf" #"urdf/rok3_model/urdf/rok3_model(view).urdf"
     footName: Foot # SHANK if collapsing fixed joint, FOOT otherwise
     kneeName: Thigh
+    calfName: Calf
     collapseFixedJoints: false
     fixBaseLink: false
     defaultDofDriveMode: 4 # see GymDofDriveModeFlags (0 is none, 1 is pos tgt, 2 is vel tgt, 4 effort)
@@ -110,40 +144,66 @@ env:
     allowKneeContacts: true
     # 
     rew_scales:
-      # motion related
+      # === Main Rewards (주요 보상 관련) ===
       terminalReward: 0.0
-      linearVelocityXYRewardScale: 1.0
-      angularVelocityZRewardScale: 0.5
-      feetAirTimeRewardScale:  1.0
+      linearVelocityXYRewardScale: 1.5
+      angularVelocityZRewardScale: 0.75
+      feetAirTimeRewardScale: 0.0
 
     pen_scales:
-      # motion related
-      linearVelocityZRewardScale: -4.0
-      angularVelocityXYRewardScale: -0.05
-      orientationRewardScale: -0. #-1.
-      torqueRewardScale: -0.00002 # -0.000025
-      jointAccRewardScale: -0.0005 # -0.0025
-      baseHeightRewardScale: -0.0 #5
+      # === Base Motion (명령 추종 관련) ===
+      linearVelocityZRewardScale: -0.05     # Z축 속도
+      angularVelocityXYRewardScale: -0.005  # Roll/Pitch 각속도     
 
-      # gait related
-      swingStancePhase: -0.7
-      shortSwing: -0.05
-      footHeight: -2.75
-      defaultPosStanding: -0.15
+      # === CoM Stability (안정성 관련)  ===
+      comHeight: -0.0              # CoM 높이 유지
+      comSupport: -0.0             # CoM 위치 안정성 (지지 다각형 내 유지)
+      comVelZ: -0.0                # CoM Z축 속도
 
-      # safety 
-      kneeCollisionRewardScale: -0.25 
-      feetStumbleRewardScale: -0. #-2.0
-      actionRateRewardScale: -0.01
-      # cosmetics
-      hipRewardScale: -0. #25
+      # === Body Orientation (자세 관련) ===
+      baseHeightRewardScale: -2.5 # 몸통 높이 유지   
+      baseOrientation: -5.0        # 0.1 몸통 기울기 
+
+      # === Gait Related (보행 리듬 관련) ===
+      swingStancePhase: -0.5
+      footHeight: -0.275
+      footSlip: -0.025 # 0.015 -> 0.15
+
+      # === Leg Placement (다리 위치 관련) ===
+      footGapY: -0.3  # 0.15
+      legGapY: -0.2   # 0.1
+      footGapXStanding: -0.05
+
+      # === Unnecessary Motion (불필요한 움직임 관련) ===
+      hipYaw: -0.025
+      hipRoll: -0.025
+      ankleRoll: -0.05
+
+      # === Safety & Limits (안전 및 한계 관련) ===
+      kneeCollisionRewardScale: -0.1 #
+      calfCollisionRewardScale: -0.1 #
+      jumpPenalty: -0.15
+      dofLimit: -5.0         
+      actionLimit: -0.001      
+      dofVelLimit: -0.001     
+
+      # === Efficiency & Smoothness (효율/부드러움 관련) ===
+      torqueRewardScale: -2e-07   # 
+      jointAccRewardScale: -0.00005 # 
+      actionRateRewardScale: -0.0005 # (Smoothness 1차)
+      actionSmoothness2RewardScale: -0.0005
+      jointEnergy: -0.0
+
+      # === Cosmetics (기타) ===
+      defaultPosStanding: -0.05
+      hipRewardScale: -0.0         # (기존 이름 유지, 나중에 삭제 고려)
 
     # observation normalization scales
     obs_scales:
-      linearVelocityScale: 2.0
+      linearVelocityScale: 1.0
       angularVelocityScale: 0.25
       dofPositionScale: 1.0
-      dofVelocityScale: 0.05
+      dofVelocityScale: 1.0
       heightMeasurementScale: 5.0
 
     # noise 
@@ -162,6 +222,7 @@ env:
     frictionRange: [0.5, 1.25]
     pushRobots: true
     pushInterval_s: 15
+    freezecmdInterval_s : 15
 
     # episode length in seconds
     episodeLength_s: 20
